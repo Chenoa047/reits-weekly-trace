@@ -33,9 +33,18 @@ type ApiPayload = {
   latestRun?: { status?: string; started_at?: string; message?: string; sse_count?: number; szse_count?: number } | null;
 };
 
+type VisitorArchive = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  savedAt: string;
+  records: ReitsRecord[];
+};
+
 const localKey = 'reits-live-visitor-edits-v1';
 const visitorAiKey = 'reits-visitor-openai-key-v1';
 const visitorAiModelKey = 'reits-visitor-openai-model-v1';
+const visitorArchiveKey = 'reits-visitor-local-archives-v1';
 
 export default function Home() {
   const [payload, setPayload] = useState<ApiPayload | null>(null);
@@ -51,6 +60,7 @@ export default function Home() {
   const [aiKey, setAiKey] = useState('');
   const [aiModel, setAiModel] = useState('gpt-5');
   const [aiWorkingId, setAiWorkingId] = useState('');
+  const [visitorArchives, setVisitorArchives] = useState<VisitorArchive[]>([]);
   const [adminPassword, setAdminPassword] = useState('');
   const [adminAuthed, setAdminAuthed] = useState(false);
 
@@ -63,6 +73,7 @@ export default function Home() {
     }
     setAiKey(localStorage.getItem(visitorAiKey) || '');
     setAiModel(localStorage.getItem(visitorAiModelKey) || 'gpt-5');
+    setVisitorArchives(readVisitorArchives());
   }, []);
 
   async function loadData() {
@@ -104,6 +115,13 @@ export default function Home() {
     setAiKey('');
     localStorage.removeItem(visitorAiKey);
     setMessage('已清除本机保存的访客 AI Key。');
+  }
+
+  function openCompareRecord(record: ReitsRecord) {
+    setCompareRecord(record);
+    window.setTimeout(() => {
+      document.getElementById(comparePanelId(record.id))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   }
 
   async function generateVisitorBrief(record: ReitsRecord) {
@@ -166,6 +184,38 @@ export default function Home() {
     ];
     setRecords(next);
     localStorage.setItem(localKey, JSON.stringify(next));
+  }
+
+  function saveVisitorArchive() {
+    if (!payload) {
+      setMessage('本周数据尚未读取完成，暂不能保存本地归档。');
+      return;
+    }
+    const archive: VisitorArchive = {
+      id: crypto.randomUUID(),
+      weekStart: payload.range.start,
+      weekEnd: payload.range.end,
+      savedAt: new Date().toISOString(),
+      records,
+    };
+    const next = [archive, ...visitorArchives].slice(0, 24);
+    setVisitorArchives(next);
+    localStorage.setItem(visitorArchiveKey, JSON.stringify(next));
+    setMessage('已保存访客本地归档。该归档只存在当前电脑和浏览器中。');
+  }
+
+  function loadVisitorArchive(archive: VisitorArchive) {
+    setRecords(archive.records);
+    localStorage.setItem(localKey, JSON.stringify(archive.records));
+    setLocalEdit(true);
+    setMessage(`已载入 ${dotDate(archive.weekStart)} - ${dotDate(archive.weekEnd)} 的访客本地归档。`);
+  }
+
+  function deleteVisitorArchive(id: string) {
+    const next = visitorArchives.filter((archive) => archive.id !== id);
+    setVisitorArchives(next);
+    localStorage.setItem(visitorArchiveKey, JSON.stringify(next));
+    setMessage('已删除该访客本地归档记录。');
   }
 
   async function adminLogin() {
@@ -295,10 +345,16 @@ export default function Home() {
             saveAiModel={saveAiModel}
             clearAiKey={clearAiKey}
             generateVisitorBrief={generateVisitorBrief}
+            visitorArchives={visitorArchives}
+            saveVisitorArchive={saveVisitorArchive}
+            loadVisitorArchive={loadVisitorArchive}
+            deleteVisitorArchive={deleteVisitorArchive}
             updateLocalRecord={updateLocalRecord}
             addLocalRecord={addLocalRecord}
             exportWord={exportWord}
-            setCompareRecord={setCompareRecord}
+            compareRecord={compareRecord}
+            setCompareRecord={openCompareRecord}
+            clearCompareRecord={() => setCompareRecord(null)}
             latestRun={payload?.latestRun}
           />
         ) : null}
@@ -315,7 +371,6 @@ export default function Home() {
             adminArchive={adminArchive}
           />
         ) : null}
-        {compareRecord ? <ComparePanel record={compareRecord} onClose={() => setCompareRecord(null)} /> : null}
       </div>
     </main>
   );
@@ -340,13 +395,35 @@ function IntroPanel() {
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-4">
-        {['每日自动抓取', '按周自动归档', '后台密码管理', '本地编辑导出'].map((item, index) => (
+        {['每日自动抓取', '按周自动归档', '本地编辑导出'].map((item, index) => (
           <article key={item} className="border border-[#d8d1cf] bg-white p-5">
             <span className="text-sm font-black text-[#96001e]">{String(index + 1).padStart(2, '0')}</span>
             <h3 className="mt-2 text-lg font-black">{item}</h3>
           </article>
         ))}
       </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <article className="border border-[#d8d1cf] bg-white p-6">
+          <p className="mb-2 text-sm font-bold text-[#96001e]">基础模式</p>
+          <h3 className="mb-3 text-xl font-black">直接查看全站正式内容</h3>
+          <p className="text-sm leading-7 text-[#51484b]">
+            基础模式不要求访客填写 API Key，也不会调用访客的模型额度。页面展示的是网站自动抓取、后台维护或全站归档中的正式简报内容，适合快速浏览本周一级市场项目进度和相关原文件。
+          </p>
+        </article>
+        <article className="border border-[#e7bebf] bg-[#fffafa] p-6">
+          <p className="mb-2 text-sm font-bold text-[#96001e]">访客 AI 模式</p>
+          <h3 className="mb-3 text-xl font-black">使用访客自己的额度生成本地版本</h3>
+          <p className="text-sm leading-7 text-[#51484b]">
+            访客 AI 模式由访问者自行填写 API Key，网页只提供材料整理、提示词和本地编辑导出功能。生成内容只保存在当前电脑浏览器中，不上传服务器，不改动全站简报，也不会进入全站归档。
+          </p>
+        </article>
+      </div>
+      <article className="border border-[#e0c27c] bg-[#f7f1e0] p-5">
+        <p className="text-sm font-bold text-[#96001e]">使用交流</p>
+        <p className="mt-2 text-sm leading-7 text-[#51484b]">
+          如遇使用问题，欢迎交流：<a className="font-bold text-[#96001e]" href="mailto:fengchenyu0707@163.com">fengchenyu0707@163.com</a>
+        </p>
+      </article>
     </section>
   );
 }
@@ -372,10 +449,16 @@ function BriefPanel(props: {
   saveAiModel: (value: string) => void;
   clearAiKey: () => void;
   generateVisitorBrief: (record: ReitsRecord) => void;
+  visitorArchives: VisitorArchive[];
+  saveVisitorArchive: () => void;
+  loadVisitorArchive: (archive: VisitorArchive) => void;
+  deleteVisitorArchive: (id: string) => void;
   updateLocalRecord: (id: string, patch: Partial<ReitsRecord>) => void;
   addLocalRecord: () => void;
   exportWord: () => void;
+  compareRecord: ReitsRecord | null;
   setCompareRecord: (record: ReitsRecord) => void;
+  clearCompareRecord: () => void;
   latestRun?: ApiPayload['latestRun'];
 }) {
   return (
@@ -434,7 +517,44 @@ function BriefPanel(props: {
         </div>
       </section>
 
-      <section className="mb-5 grid gap-4 lg:grid-cols-[1.3fr_0.8fr_0.8fr]">
+      <section className="mb-5 grid gap-4 md:grid-cols-2">
+        <article className="archive-card">
+          <p className="text-sm font-bold text-[#96001e]">全站归档</p>
+          <h2 className="mt-1 text-xl font-black">正式周报内容归档</h2>
+          <p className="mt-3 text-sm leading-7 text-[#51484b]">
+            全站归档保存的是网站数据库中的正式内容，由管理员后台或定时任务触发。访客 AI 模式生成的本地简报不会写入全站归档，也不会影响其他访问者看到的页面。
+          </p>
+          <div className="archive-status">
+            <span>当前周</span>
+            <strong>{props.records.length} 个项目</strong>
+            <em>周末归档后固定</em>
+          </div>
+        </article>
+        <article className="archive-card visitor">
+          <p className="text-sm font-bold text-[#96001e]">访客本地归档</p>
+          <h2 className="mt-1 text-xl font-black">保存自己的 AI/编辑版本</h2>
+          <p className="mt-3 text-sm leading-7 text-[#51484b]">
+            访客可将当前浏览器中的简报保存为个人归档，后续在同一台电脑、同一浏览器中读取或导出 Word。该归档不上传服务器。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button className="btn-primary" onClick={props.saveVisitorArchive}>保存本周到本地归档</button>
+            <button className="btn-muted" onClick={props.exportWord}>导出当前简报</button>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {props.visitorArchives.length ? props.visitorArchives.map((archive) => (
+              <div className="local-archive-row" key={archive.id}>
+                <button onClick={() => props.loadVisitorArchive(archive)}>
+                  <strong>{dotDate(archive.weekStart)} - {dotDate(archive.weekEnd)}</strong>
+                  <span>{archive.records.length} 项，保存于 {new Date(archive.savedAt).toLocaleString('zh-CN')}</span>
+                </button>
+                <button className="archive-delete" onClick={() => props.deleteVisitorArchive(archive.id)}>删除</button>
+              </div>
+            )) : <p className="text-sm text-[#695f62]">暂无访客本地归档。</p>}
+          </div>
+        </article>
+      </section>
+
+      <section className="mb-5 grid gap-4">
         <article className="border border-[#d8d1cf] bg-white p-5">
           <p className="text-sm font-bold text-[#96001e]">本周要点</p>
           <h2 className="mb-4 text-xl font-black">按进度类型合并展示</h2>
@@ -446,9 +566,11 @@ function BriefPanel(props: {
             ))}
           </div>
         </article>
-        <Distribution title="本周项目进度" data={props.stats.type} onClick={props.setTypeFilter} />
-        <Distribution title="披露来源" data={props.stats.exchange} onClick={props.setExchangeFilter} />
-        <article className="border border-[#d8d1cf] bg-white p-5 lg:col-span-3">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Distribution title="本周项目进度" data={props.stats.type} onClick={props.setTypeFilter} />
+          <Distribution title="披露来源" data={props.stats.exchange} onClick={props.setExchangeFilter} />
+        </div>
+        <article className="border border-[#d8d1cf] bg-white p-5">
           <p className="text-sm font-bold text-[#96001e]">官方入口</p>
           <h2 className="mb-4 text-xl font-black">交易所 REITs 专栏</h2>
           <div className="grid gap-3 md:grid-cols-2">
@@ -463,7 +585,7 @@ function BriefPanel(props: {
         <Filter title="交易所" values={['全部', '上交所', '深交所']} active={props.exchangeFilter} onClick={props.setExchangeFilter} />
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-5">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-2xl font-black">本周一级项目动态</h2>
@@ -472,30 +594,23 @@ function BriefPanel(props: {
           {props.loading ? <p className="border bg-white p-6">正在读取本周数据...</p> : null}
           <div className="grid gap-4">
             {props.filtered.map((record) => (
-              <ProjectCard
-                key={record.id}
-                record={record}
-                localEdit={props.localEdit}
-                aiMode={props.aiMode}
-                aiWorking={props.aiWorkingId === record.id}
-                updateLocalRecord={props.updateLocalRecord}
-                generateVisitorBrief={props.generateVisitorBrief}
-                setCompareRecord={props.setCompareRecord}
-              />
+              <div className="grid gap-3" key={record.id}>
+                <ProjectCard
+                  record={record}
+                  localEdit={props.localEdit}
+                  aiMode={props.aiMode}
+                  aiWorking={props.aiWorkingId === record.id}
+                  updateLocalRecord={props.updateLocalRecord}
+                  generateVisitorBrief={props.generateVisitorBrief}
+                  setCompareRecord={props.setCompareRecord}
+                />
+                {props.compareRecord?.id === record.id ? (
+                  <ComparePanel record={record} onClose={props.clearCompareRecord} />
+                ) : null}
+              </div>
             ))}
           </div>
         </section>
-        <aside className="grid content-start gap-4">
-          <SideCard title="数据口径与核验方式">
-            本页按访问日期读取本周一至当天的项目。简报仅引用交易所项目动态、招募说明书、反馈意见、问询函及回复文件中可核验的信息。
-          </SideCard>
-          <SideCard title="自动更新状态">
-            {props.latestRun?.started_at ? `最近抓取：${new Date(props.latestRun.started_at).toLocaleString('zh-CN')}。${props.latestRun.message || ''}` : '首次访问时会尝试抓取交易所数据。'}
-          </SideCard>
-          <SideCard title="历史归档">
-            上线后每周结束自动保存当周内容，不回补网站完成前的历史周报。
-          </SideCard>
-        </aside>
       </div>
     </section>
   );
@@ -590,7 +705,7 @@ function AdminPanel(props: {
 
 function ComparePanel({ record, onClose }: { record: ReitsRecord; onClose: () => void }) {
   return (
-    <section className="mt-8 border border-[#d8d1cf] bg-white">
+    <section id={comparePanelId(record.id)} className="border border-[#d8d1cf] bg-white">
       <div className="flex items-center justify-between border-b border-[#d8d1cf] p-5">
         <div>
           <p className="text-sm font-bold text-[#96001e]">同屏核对</p>
@@ -608,6 +723,10 @@ function ComparePanel({ record, onClose }: { record: ReitsRecord; onClose: () =>
 
 function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
   return <button className={`min-h-12 min-w-40 px-7 text-lg font-black ${active ? 'bg-[#96001e] text-white' : 'bg-white'}`} onClick={onClick}>{children}</button>;
+}
+
+function comparePanelId(id: string) {
+  return `compare-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -634,10 +753,6 @@ function Distribution({ title, data, onClick }: { title: string; data: Record<st
 
 function Filter({ title, values, active, onClick }: { title: string; values: string[]; active: string; onClick: (value: string) => void }) {
   return <div><strong className="mb-2 block">{title}</strong><div className="flex flex-wrap gap-2">{values.map((value) => <button key={value} className={active === value ? 'filter active' : 'filter'} onClick={() => onClick(value)}>{value}</button>)}</div></div>;
-}
-
-function SideCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="border border-[#d8d1cf] bg-white p-5"><h2 className="mb-3 text-xl font-black">{title}</h2><p className="text-[#51484b]">{children}</p></section>;
 }
 
 function buildStats(records: ReitsRecord[]) {
@@ -696,4 +811,13 @@ function extractOutputText(data: any) {
     .filter((content: any) => content?.type === 'output_text' && typeof content?.text === 'string')
     .map((content: any) => content.text)
     .join('\n');
+}
+
+function readVisitorArchives() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(visitorArchiveKey) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

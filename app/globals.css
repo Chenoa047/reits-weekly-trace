@@ -217,6 +217,69 @@ body {
   color: #fff;
 }
 
+.archive-card {
+  border: 1px solid #d8d1cf;
+  background: #fff;
+  padding: 22px;
+}
+
+.archive-card.visitor {
+  background: #fffafa;
+  border-color: #e7bebf;
+}
+
+.archive-status {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 14px;
+  margin-top: 18px;
+  border-top: 1px solid #ead2d2;
+  padding-top: 14px;
+}
+
+.archive-status span,
+.archive-status em {
+  color: #695f62;
+  font-size: 14px;
+  font-style: normal;
+}
+
+.archive-status strong {
+  color: #96001e;
+  font-size: 18px;
+}
+
+.local-archive-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border: 1px solid #ead2d2;
+  background: #fff;
+}
+
+.local-archive-row button {
+  border: 0;
+  background: transparent;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.local-archive-row strong,
+.local-archive-row span {
+  display: block;
+}
+
+.local-archive-row span {
+  margin-top: 4px;
+  color: #695f62;
+  font-size: 13px;
+}
+
+.local-archive-row .archive-delete {
+  border-left: 1px solid #ead2d2;
+  color: #96001e;
+  font-weight: 900;
+}
+
 .source-frame {
   display: grid;
   align-content: start;
