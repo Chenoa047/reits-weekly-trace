@@ -75,6 +75,13 @@ body {
 
 .btn-muted:disabled {
   color: #aaa;
+  cursor: not-allowed;
+}
+
+.btn-primary:disabled {
+  background: #b9a9ad;
+  border-color: #b9a9ad;
+  cursor: wait;
 }
 
 .btn-danger {
@@ -188,6 +195,26 @@ body {
   background: #fff;
   padding: 10px 12px;
   line-height: 1.6;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #d8d1cf;
+  background: #f2f2f2;
+}
+
+.mode-switch button {
+  min-height: 46px;
+  border: 0;
+  background: transparent;
+  color: #51484b;
+  font-weight: 900;
+}
+
+.mode-switch button.active {
+  background: #96001e;
+  color: #fff;
 }
 
 .source-frame {

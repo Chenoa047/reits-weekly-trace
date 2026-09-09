@@ -34,6 +34,8 @@ type ApiPayload = {
 };
 
 const localKey = 'reits-live-visitor-edits-v1';
+const visitorAiKey = 'reits-visitor-openai-key-v1';
+const visitorAiModelKey = 'reits-visitor-openai-model-v1';
 
 export default function Home() {
   const [payload, setPayload] = useState<ApiPayload | null>(null);
@@ -45,6 +47,10 @@ export default function Home() {
   const [exchangeFilter, setExchangeFilter] = useState('全部');
   const [compareRecord, setCompareRecord] = useState<ReitsRecord | null>(null);
   const [localEdit, setLocalEdit] = useState(false);
+  const [aiMode, setAiMode] = useState(false);
+  const [aiKey, setAiKey] = useState('');
+  const [aiModel, setAiModel] = useState('gpt-5');
+  const [aiWorkingId, setAiWorkingId] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminAuthed, setAdminAuthed] = useState(false);
 
@@ -55,6 +61,8 @@ export default function Home() {
       setAdminPassword(saved);
       setAdminAuthed(true);
     }
+    setAiKey(localStorage.getItem(visitorAiKey) || '');
+    setAiModel(localStorage.getItem(visitorAiModelKey) || 'gpt-5');
   }, []);
 
   async function loadData() {
@@ -76,6 +84,64 @@ export default function Home() {
     const next = records.map((record) => (record.id === id ? { ...record, ...patch } : record));
     setRecords(next);
     localStorage.setItem(localKey, JSON.stringify(next));
+  }
+
+  function saveAiKey(value: string) {
+    setAiKey(value);
+    if (value) {
+      localStorage.setItem(visitorAiKey, value);
+    } else {
+      localStorage.removeItem(visitorAiKey);
+    }
+  }
+
+  function saveAiModel(value: string) {
+    setAiModel(value);
+    localStorage.setItem(visitorAiModelKey, value);
+  }
+
+  function clearAiKey() {
+    setAiKey('');
+    localStorage.removeItem(visitorAiKey);
+    setMessage('已清除本机保存的访客 AI Key。');
+  }
+
+  async function generateVisitorBrief(record: ReitsRecord) {
+    if (!aiKey.trim()) {
+      setMessage('请先在访客 AI 模式中填写自己的 API Key。');
+      return;
+    }
+    setAiWorkingId(record.id);
+    setMessage('正在使用访客自己的额度生成本地简报...');
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${aiKey.trim()}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: aiModel.trim() || 'gpt-5',
+          store: false,
+          input: buildVisitorPrompt(record),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message || '模型接口调用失败。');
+      }
+      const text = extractOutputText(data).trim();
+      if (!text) {
+        throw new Error('模型未返回可用文本。');
+      }
+      updateLocalRecord(record.id, { brief: text });
+      setLocalEdit(true);
+      setMessage('已生成本地简报。该内容只保存在当前浏览器，不会改动全站内容。');
+    } catch (error) {
+      setMessage(error instanceof Error ? `访客 AI 生成失败：${error.message}` : '访客 AI 生成失败。');
+    } finally {
+      setAiWorkingId('');
+    }
   }
 
   function addLocalRecord() {
@@ -217,9 +283,18 @@ export default function Home() {
             typeFilter={typeFilter}
             exchangeFilter={exchangeFilter}
             localEdit={localEdit}
+            aiMode={aiMode}
+            aiKey={aiKey}
+            aiModel={aiModel}
+            aiWorkingId={aiWorkingId}
             setTypeFilter={setTypeFilter}
             setExchangeFilter={setExchangeFilter}
             setLocalEdit={setLocalEdit}
+            setAiMode={setAiMode}
+            saveAiKey={saveAiKey}
+            saveAiModel={saveAiModel}
+            clearAiKey={clearAiKey}
+            generateVisitorBrief={generateVisitorBrief}
             updateLocalRecord={updateLocalRecord}
             addLocalRecord={addLocalRecord}
             exportWord={exportWord}
@@ -285,9 +360,18 @@ function BriefPanel(props: {
   typeFilter: string;
   exchangeFilter: string;
   localEdit: boolean;
+  aiMode: boolean;
+  aiKey: string;
+  aiModel: string;
+  aiWorkingId: string;
   setTypeFilter: (value: string) => void;
   setExchangeFilter: (value: string) => void;
   setLocalEdit: (value: boolean) => void;
+  setAiMode: (value: boolean) => void;
+  saveAiKey: (value: string) => void;
+  saveAiModel: (value: string) => void;
+  clearAiKey: () => void;
+  generateVisitorBrief: (record: ReitsRecord) => void;
   updateLocalRecord: (id: string, patch: Partial<ReitsRecord>) => void;
   addLocalRecord: () => void;
   exportWord: () => void;
@@ -317,6 +401,36 @@ function BriefPanel(props: {
             <button className="btn-muted" onClick={props.exportWord}>导出 Word 文档</button>
             <button className="btn-muted" onClick={() => localStorage.removeItem(localKey)}>清除本地修改</button>
           </div>
+        </div>
+      </section>
+
+      <section className="mb-5 grid gap-4 border border-[#d8d1cf] bg-white p-5 lg:grid-cols-[0.75fr_1fr]">
+        <div>
+          <p className="text-sm font-bold text-[#96001e]">生成模式</p>
+          <h2 className="mt-1 text-xl font-black">基础模式 / 访客 AI 模式</h2>
+          <p className="mt-2 text-sm leading-7 text-[#51484b]">
+            基础模式直接展示网站已抓取和维护的简报；访客 AI 模式由访问者填写自己的 API Key，并在本机生成、编辑和导出，生成内容不写入全站数据库。
+          </p>
+        </div>
+        <div className="grid gap-3">
+          <div className="mode-switch">
+            <button className={!props.aiMode ? 'active' : ''} onClick={() => props.setAiMode(false)}>基础模式</button>
+            <button className={props.aiMode ? 'active' : ''} onClick={() => props.setAiMode(true)}>访客 AI 模式</button>
+          </div>
+          {props.aiMode ? (
+            <div className="grid gap-3 md:grid-cols-[1fr_160px_auto]">
+              <input className="field" type="password" placeholder="填写访问者自己的 OpenAI API Key，仅保存在本机浏览器" value={props.aiKey} onChange={(event) => props.saveAiKey(event.target.value)} />
+              <input className="field" value={props.aiModel} onChange={(event) => props.saveAiModel(event.target.value)} aria-label="模型名称" />
+              <button className="btn-muted" onClick={props.clearAiKey}>清除 Key</button>
+              <p className="text-xs leading-6 text-[#695f62] md:col-span-3">
+                该模式会从访客浏览器直接请求模型接口，额度由访客自己的 API Key 承担。请仅在可信电脑使用，并在使用后清除 Key。
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm leading-7 text-[#51484b]">
+              当前为基础模式，不调用 AI 模型，不消耗任何模型额度。页面仅展示已抓取、已归档或后台维护的内容。
+            </p>
+          )}
         </div>
       </section>
 
@@ -362,7 +476,10 @@ function BriefPanel(props: {
                 key={record.id}
                 record={record}
                 localEdit={props.localEdit}
+                aiMode={props.aiMode}
+                aiWorking={props.aiWorkingId === record.id}
                 updateLocalRecord={props.updateLocalRecord}
+                generateVisitorBrief={props.generateVisitorBrief}
                 setCompareRecord={props.setCompareRecord}
               />
             ))}
@@ -387,7 +504,10 @@ function BriefPanel(props: {
 function ProjectCard(props: {
   record: ReitsRecord;
   localEdit: boolean;
+  aiMode: boolean;
+  aiWorking: boolean;
   updateLocalRecord: (id: string, patch: Partial<ReitsRecord>) => void;
+  generateVisitorBrief: (record: ReitsRecord) => void;
   setCompareRecord: (record: ReitsRecord) => void;
 }) {
   const { record } = props;
@@ -409,6 +529,11 @@ function ProjectCard(props: {
         <p className={record.note ? 'brief with-note' : 'brief'}>{record.brief}</p>
       )}
       <div className="mt-4 flex flex-wrap gap-3">
+        {props.aiMode ? (
+          <button className="btn-primary" onClick={() => props.generateVisitorBrief(record)} disabled={props.aiWorking}>
+            {props.aiWorking ? '生成中...' : '用访客额度生成简报'}
+          </button>
+        ) : null}
         <button className="btn-muted" onClick={() => props.setCompareRecord(record)}>同屏核对</button>
         {record.files.length ? record.files.map((file) => <a key={file.url} className="file-link" href={file.url} target="_blank" rel="noreferrer">{file.label}</a>) : <span className="text-sm text-[#695f62]">申报阶段暂无需展示的原文件</span>}
       </div>
@@ -536,4 +661,39 @@ function dotDate(value: string) {
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildVisitorPrompt(record: ReitsRecord) {
+  return `你是公募REITs行业周报撰写助手。请仅依据下列材料改写一段“一级市场项目跟踪”简报，不要编造材料以外的信息。
+
+写作要求：
+1. 输出中文一段正文，不要分点，不要使用感叹号。
+2. 保持金融专业书面语，客观陈述。
+3. 字数控制在250-400字。
+4. 若材料未披露底层资产、估值、发行安排等信息，必须写明未披露或不展开，不得补充公开资料。
+5. 简报标题已在网页中展示，正文中不要重复项目全称。
+
+项目状态：${record.status}
+进度类型：${record.progressType}
+更新时间：${record.updateDate}
+交易所：${record.exchange}
+项目简称：${record.shortName}
+原始权益人：${record.originator || '材料未披露'}
+当前基础模式简报：${record.brief}
+可核验原文摘录：${stripHtml(record.sourceHtml || '暂无结构化原文摘录')}
+相关文件：${record.files.map((file) => `${file.label}：${file.url}`).join('；') || '暂无需展示的原文件'}`;
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function extractOutputText(data: any) {
+  if (typeof data?.output_text === 'string') return data.output_text;
+  if (!Array.isArray(data?.output)) return '';
+  return data.output
+    .flatMap((item: any) => item?.content || [])
+    .filter((content: any) => content?.type === 'output_text' && typeof content?.text === 'string')
+    .map((content: any) => content.text)
+    .join('\n');
 }
