@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { generateDeepSeekBrief, sourceSignature } from '@/lib/deepseek';
 
 export type ReitsFile = {
   label: string;
@@ -213,7 +214,11 @@ export async function deleteRecord(db: D1, id: string) {
   await db.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
 }
 
-export async function refreshWeek(db: D1, dateText = todayChina()) {
+export async function refreshWeek(
+  db: D1,
+  dateText = todayChina(),
+  options: { generateBriefs?: boolean; forceGenerate?: boolean } = {},
+) {
   const { start, end } = weekRangeFor(dateText);
   const runId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
@@ -225,13 +230,45 @@ export async function refreshWeek(db: D1, dateText = todayChina()) {
   let message = '';
   let sseCount = 0;
   let szseCount = 0;
+  let generatedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
     const sseRecords = await fetchSseRecords(start, end);
     sseCount = sseRecords.length;
     for (const record of sseRecords) {
+      const existing = await findRecord(db, record.id);
+      const sourceChanged = !existing || sourceSignature(existing) !== sourceSignature(record);
+      const shouldGenerate = Boolean(options.generateBriefs && (options.forceGenerate || sourceChanged));
+      if (shouldGenerate) {
+        try {
+          const generated = await generateDeepSeekBrief(record);
+          record.brief = generated.brief;
+          generatedCount += 1;
+          inputTokens += generated.inputTokens;
+          outputTokens += generated.outputTokens;
+        } catch {
+          failedCount += 1;
+          if (existing) {
+            record.brief = existing.brief;
+            record.note = existing.note;
+          }
+        }
+      } else if (options.generateBriefs) {
+        skippedCount += 1;
+        if (existing) {
+          record.brief = existing.brief;
+          record.note = existing.note;
+        }
+      }
       await upsertRecord(db, record);
     }
-    message = `上交所抓取 ${sseCount} 条；深交所接口待维护，保留后台编辑入口。`;
+    const aiMessage = options.generateBriefs
+      ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
+      : '';
+    message = `上交所抓取 ${sseCount} 条${aiMessage}；深交所接口待维护，保留后台编辑入口。`;
     await db
       .prepare(
         'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
@@ -247,7 +284,28 @@ export async function refreshWeek(db: D1, dateText = todayChina()) {
       .bind(new Date().toISOString(), 'failed', sseCount, szseCount, message, runId)
       .run();
   }
-  return { runId, start, end, sseCount, szseCount, message };
+  return {
+    runId,
+    start,
+    end,
+    sseCount,
+    szseCount,
+    generatedCount,
+    skippedCount,
+    failedCount,
+    inputTokens,
+    outputTokens,
+    message,
+  };
+}
+
+async function findRecord(db: D1, id: string) {
+  const row = await db
+    .prepare('SELECT * FROM projects WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<Record<string, unknown>>()
+    .catch(() => null);
+  return row ? rowToRecord(row) : null;
 }
 
 export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
