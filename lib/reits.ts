@@ -32,6 +32,9 @@ type D1 = AppDb;
 const SSE_QUERY = 'https://query.sse.com.cn/commonSoaQuery.do';
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
+const SZSE_API_BASE = 'https://reits.szse.cn/api/reits/projectrends';
+const SZSE_REFERER = 'https://reits.szse.cn/projectdynamic/index.html';
+const SZSE_FILE_BASE = 'https://reportdocs.static.szse.cn';
 
 export const seedRecords: ReitsRecord[] = [
   {
@@ -236,9 +239,19 @@ export async function refreshWeek(
   let inputTokens = 0;
   let outputTokens = 0;
   try {
-    const sseRecords = await fetchSseRecords(start, end);
+    const [sseResult, szseResult] = await Promise.allSettled([
+      fetchSseRecords(start, end),
+      fetchSzseRecords(start, end),
+    ]);
+    if (sseResult.status === 'rejected' && szseResult.status === 'rejected') {
+      throw new Error('上交所和深交所抓取均失败，请稍后重试。');
+    }
+
+    const sseRecords = sseResult.status === 'fulfilled' ? sseResult.value : [];
+    const szseRecords = szseResult.status === 'fulfilled' ? szseResult.value : [];
     sseCount = sseRecords.length;
-    for (const record of sseRecords) {
+    szseCount = szseRecords.length;
+    for (const record of [...sseRecords, ...szseRecords]) {
       const existing = await findRecord(db, record.id);
       const sourceChanged = !existing || sourceSignature(existing) !== sourceSignature(record);
       const shouldGenerate = Boolean(options.generateBriefs && (options.forceGenerate || sourceChanged));
@@ -268,7 +281,11 @@ export async function refreshWeek(
     const aiMessage = options.generateBriefs
       ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
-    message = `上交所抓取 ${sseCount} 条${aiMessage}；深交所接口待维护，保留后台编辑入口。`;
+    const sseMessage =
+      sseResult.status === 'fulfilled' ? `上交所抓取 ${sseCount} 条` : '上交所抓取失败，本次保留已有数据';
+    const szseMessage =
+      szseResult.status === 'fulfilled' ? `深交所抓取 ${szseCount} 条` : '深交所抓取失败，本次保留已有数据';
+    message = `${sseMessage}；${szseMessage}${aiMessage}。`;
     await db
       .prepare(
         'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
@@ -328,6 +345,83 @@ async function fetchSseRecords(start: string, end: string): Promise<ReitsRecord[
   const data = await fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER);
   const projects = (data.result || []).filter((item) => item.PUBLISH_DATE >= start && item.PUBLISH_DATE <= end);
   return Promise.all(projects.map((project) => mapSseProject(project, start, end)));
+}
+
+async function fetchSzseRecords(start: string, end: string): Promise<ReitsRecord[]> {
+  const lists = await Promise.all(([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)));
+  const projects = lists.flat().filter((item) => item.updtdt >= start && item.updtdt <= end);
+  return Promise.all(projects.map((project) => mapSzseProject(project, start, end)));
+}
+
+async function fetchSzseProjectList(biztypsb: 21 | 23) {
+  const query = new URLSearchParams({
+    biztypsb: String(biztypsb),
+    pageIndex: '0',
+    pageSize: '200',
+    bizType: '2',
+  });
+  const data = await fetchJson<{ data?: SzseProject[] }>(`${SZSE_API_BASE}/query?${query}`, SZSE_REFERER);
+  return data.data || [];
+}
+
+async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
+  const detailUrl = `https://reits.szse.cn/projectdynamic/detail/index.html?id=${project.prjid}`;
+  const detailResponse = await fetchJson<{ data?: SzseProjectDetail }>(
+    `${SZSE_API_BASE}/details?id=${project.prjid}`,
+    detailUrl,
+  ).catch(() => ({ data: undefined }));
+  const detail = detailResponse.data;
+  const files = detail ? szseFiles(detail) : [];
+  const status = clean(project.prjst);
+  const progressType = inferProgress(status, files);
+  const shortName = briefName(project.cmpnm);
+  const originator = clean(project.primitiveInterestsor);
+  const fileText = files.length ? `，并披露${files.map((file) => `《${file.label}》`).join('、')}` : '';
+  return {
+    id: `szse-${project.prjid}-${project.updtdt}`,
+    exchange: '深交所',
+    fullName: project.cmpnm,
+    shortName,
+    title: titleFor(shortName, progressType, '深交所'),
+    status,
+    progressType,
+    updateDate: project.updtdt,
+    weekStart,
+    weekEnd,
+    originator,
+    brief: `${displayDate(project.updtdt)}，深交所网站显示，${shortName}项目状态为“${status}”${fileText}。项目原始权益人为${originator}。本条依据深交所项目动态页及公开附件清单自动生成，附件正文尚未解析的信息不作补充。`,
+    files,
+    sourceUrl: detailUrl,
+    sourceHtml: buildSzseSourceHtml(project, status, files),
+  };
+}
+
+function szseFiles(detail: SzseProjectDetail): ReitsFile[] {
+  const groups = [
+    detail.disclosureMaterials,
+    detail.enquiryResponseAttachment,
+    detail.meetingConclusionAttachment,
+    detail.terminationNoticeAttachment,
+    detail.registrationResultAttachment,
+    detail.cashReorganizationResultAttachment,
+  ];
+  const seen = new Set<string>();
+  return groups
+    .flatMap((group) => group || [])
+    .filter((file) => Boolean(file.dfpth) && !seen.has(file.dfpth) && seen.add(file.dfpth))
+    .map((file) => {
+      const title = file.dfnm || file.configFileName || file.matnm || '项目披露文件';
+      return {
+        label: labelForFile(title),
+        kind: kindForFile(title),
+        url: `${SZSE_FILE_BASE}${file.dfpth}`,
+      };
+    });
+}
+
+function buildSzseSourceHtml(project: SzseProject, status: string, files: ReitsFile[]) {
+  const fileList = files.map((file) => `<mark>${escapeHtml(file.label)}</mark>`).join('、');
+  return `<h3>对应原文摘录</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.cmpnm)}<mark>项目状态为“${escapeHtml(status)}”</mark>，更新时间为<mark>${escapeHtml(project.updtdt)}</mark>。</p><p><span class="page-ref">项目动态页</span>项目原始权益人为<mark>${escapeHtml(clean(project.primitiveInterestsor))}</mark>。</p><p><span class="page-ref">附件列表</span>${fileList || '项目详情页暂未披露附件。'}</p>`;
 }
 
 async function mapSseProject(project: SseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
@@ -430,6 +524,7 @@ function seedRecordsForRange(start: string, end: string) {
 function inferProgress(status: string, files: ReitsFile[]) {
   const hasReply = files.some((file) => /回复|答复/.test(file.label));
   if (status === '已反馈') return hasReply ? '回复反馈' : '反馈/问询';
+  if (status === '已问询') return hasReply ? '回复反馈' : '反馈/问询';
   if (status === '已受理') return '受理';
   if (status === '已申报') return '申报';
   if (status === '注册生效') return '注册生效';
@@ -516,4 +611,28 @@ type SseProject = {
 type SseFile = {
   FILE_TITLE: string;
   FILE_PATH: string;
+};
+
+type SzseProject = {
+  prjid: number;
+  cmpnm: string;
+  prjst: string;
+  updtdt: string;
+  primitiveInterestsor: string;
+};
+
+type SzseFile = {
+  dfnm?: string;
+  configFileName?: string;
+  matnm?: string;
+  dfpth: string;
+};
+
+type SzseProjectDetail = {
+  disclosureMaterials?: SzseFile[];
+  enquiryResponseAttachment?: SzseFile[];
+  meetingConclusionAttachment?: SzseFile[];
+  terminationNoticeAttachment?: SzseFile[];
+  registrationResultAttachment?: SzseFile[];
+  cashReorganizationResultAttachment?: SzseFile[];
 };
