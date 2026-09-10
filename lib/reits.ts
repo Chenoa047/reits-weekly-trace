@@ -32,8 +32,7 @@ type D1 = AppDb;
 const SSE_QUERY = 'https://query.sse.com.cn/commonSoaQuery.do';
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
-const SZSE_API_BASE = 'https://reits.szse.cn/api/reits/projectrends';
-const SZSE_REFERER = 'https://reits.szse.cn/projectdynamic/index.html';
+const SZSE_ORIGINS = ['https://reits.szse.cn', 'https://www.szse.cn'] as const;
 const SZSE_FILE_BASE = 'https://reportdocs.static.szse.cn';
 
 export const seedRecords: ReitsRecord[] = [
@@ -248,7 +247,7 @@ export async function refreshWeek(
     }
 
     const sseRecords = sseResult.status === 'fulfilled' ? sseResult.value : [];
-    const szseRecords = szseResult.status === 'fulfilled' ? szseResult.value : [];
+    const szseRecords = szseResult.status === 'fulfilled' ? szseResult.value.records : [];
     sseCount = sseRecords.length;
     szseCount = szseRecords.length;
     for (const record of [...sseRecords, ...szseRecords]) {
@@ -284,7 +283,9 @@ export async function refreshWeek(
     const sseMessage =
       sseResult.status === 'fulfilled' ? `上交所抓取 ${sseCount} 条` : '上交所抓取失败，本次保留已有数据';
     const szseMessage =
-      szseResult.status === 'fulfilled' ? `深交所抓取 ${szseCount} 条` : '深交所抓取失败，本次保留已有数据';
+      szseResult.status === 'fulfilled'
+        ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
+        : `深交所抓取失败，本次保留已有数据（${describeFetchError(szseResult.reason)}）`;
     message = `${sseMessage}；${szseMessage}${aiMessage}。`;
     await db
       .prepare(
@@ -347,10 +348,20 @@ async function fetchSseRecords(start: string, end: string): Promise<ReitsRecord[
   return Promise.all(projects.map((project) => mapSseProject(project, start, end)));
 }
 
-async function fetchSzseRecords(start: string, end: string): Promise<ReitsRecord[]> {
-  const lists = await Promise.all(([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)));
-  const projects = lists.flat().filter((item) => item.updtdt >= start && item.updtdt <= end);
-  return Promise.all(projects.map((project) => mapSzseProject(project, start, end)));
+async function fetchSzseRecords(start: string, end: string) {
+  const listResults = await Promise.allSettled(([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)));
+  const succeeded = listResults.filter(
+    (result): result is PromiseFulfilledResult<SzseProject[]> => result.status === 'fulfilled',
+  );
+  if (!succeeded.length) {
+    throw new Error(listResults.map((result) => describeFetchError(result.status === 'rejected' && result.reason)).join('；'));
+  }
+  const projects = succeeded.flatMap((result) => result.value).filter((item) => item.updtdt >= start && item.updtdt <= end);
+  const records = await Promise.all(projects.map((project) => mapSzseProject(project, start, end)));
+  const failedKinds = listResults
+    .map((result, index) => (result.status === 'rejected' ? (index === 0 ? '首发列表失败' : '新购入项目列表失败') : ''))
+    .filter(Boolean);
+  return { records, warning: failedKinds.join('、') };
 }
 
 async function fetchSzseProjectList(biztypsb: 21 | 23) {
@@ -360,15 +371,15 @@ async function fetchSzseProjectList(biztypsb: 21 | 23) {
     pageSize: '200',
     bizType: '2',
   });
-  const data = await fetchJson<{ data?: SzseProject[] }>(`${SZSE_API_BASE}/query?${query}`, SZSE_REFERER);
+  const data = await fetchSzseJson<{ data?: SzseProject[] }>(`/api/reits/projectrends/query?${query}`);
+  if (!Array.isArray(data.data)) throw new Error('返回格式异常');
   return data.data || [];
 }
 
 async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
   const detailUrl = `https://reits.szse.cn/projectdynamic/detail/index.html?id=${project.prjid}`;
-  const detailResponse = await fetchJson<{ data?: SzseProjectDetail }>(
-    `${SZSE_API_BASE}/details?id=${project.prjid}`,
-    detailUrl,
+  const detailResponse = await fetchSzseJson<{ data?: SzseProjectDetail }>(
+    `/api/reits/projectrends/details?id=${project.prjid}`,
   ).catch(() => ({ data: undefined }));
   const detail = detailResponse.data;
   const files = detail ? szseFiles(detail) : [];
@@ -463,13 +474,44 @@ async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
 
 async function fetchJson<T>(url: string, referer: string): Promise<T> {
   const response = await fetch(url, {
+    cache: 'no-store',
     headers: {
+      accept: 'application/json, text/plain, */*',
       referer,
-      'user-agent': 'Mozilla/5.0 REITs weekly crawler',
+      'user-agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
     },
+    signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) throw new Error(`交易所接口返回 ${response.status}`);
   return (await response.json()) as T;
+}
+
+async function fetchSzseJson<T>(path: string): Promise<T> {
+  const failures: string[] = [];
+  for (const origin of SZSE_ORIGINS) {
+    const referer = origin.includes('www.')
+      ? `${origin}/www/reits/projectdynamic/`
+      : `${origin}/projectdynamic/index.html`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await fetchJson<T>(`${origin}${path}`, referer);
+      } catch (error) {
+        failures.push(`${origin.includes('www.') ? '官网' : 'REITs站'}${describeFetchError(error)}`);
+      }
+    }
+  }
+  throw new Error([...new Set(failures)].join('、'));
+}
+
+function describeFetchError(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  const status = message.match(/(?:返回|HTTP)\s*(\d{3})/)?.[1];
+  if (status) return `HTTP ${status}`;
+  if (/timeout|timed out|aborted/i.test(message)) return '连接超时';
+  if (/json|unexpected token|返回格式/i.test(message)) return '返回格式异常';
+  if (/fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(message)) return '网络连接失败';
+  return message.slice(0, 80) || '未知网络错误';
 }
 
 function buildSseBrief(project: SseProject, progressType: string, feedbackFiles: ReitsFile[], prospectus?: ReitsFile) {
