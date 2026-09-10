@@ -1,10 +1,10 @@
-import { env } from 'cloudflare:workers';
+import { getDb } from '@/db';
 import { assertAdmin, deleteRecord, jsonHeaders, listCurrentWeek, saveAdminRecord, type ReitsRecord } from '@/lib/reits';
 
 export async function GET(request: Request) {
   const blocked = assertAdmin(request);
   if (blocked) return blocked;
-  const payload = await listCurrentWeek(env.DB);
+  const payload = await listCurrentWeek(getDb());
   return Response.json(payload, { headers: jsonHeaders() });
 }
 
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const blocked = assertAdmin(request);
   if (blocked) return blocked;
   const record = (await request.json()) as ReitsRecord;
-  await saveAdminRecord(env.DB, normalizeRecord(record));
+  await saveAdminRecord(getDb(), normalizeRecord(record));
   return Response.json({ ok: true }, { headers: jsonHeaders() });
 }
 
@@ -24,7 +24,7 @@ export async function DELETE(request: Request) {
   if (!id) {
     return Response.json({ message: '缺少项目 ID。' }, { status: 400, headers: jsonHeaders() });
   }
-  await deleteRecord(env.DB, id);
+  await deleteRecord(getDb(), id);
   return Response.json({ ok: true }, { headers: jsonHeaders() });
 }
 

@@ -1,5 +1,3 @@
-import { env } from 'cloudflare:workers';
-
 type BriefMaterial = {
   exchange: string;
   shortName: string;
@@ -19,7 +17,7 @@ export type DeepSeekBriefResult = {
 };
 
 export async function generateDeepSeekBrief(record: BriefMaterial): Promise<DeepSeekBriefResult> {
-  const apiKey = env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error('not_configured');
 
   const controller = new AbortController();

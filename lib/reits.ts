@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import type { AppDb } from '@/db';
 import { generateDeepSeekBrief, sourceSignature } from '@/lib/deepseek';
 
 export type ReitsFile = {
@@ -27,7 +27,7 @@ export type ReitsRecord = {
   isArchived?: boolean;
 };
 
-type D1 = D1Database;
+type D1 = AppDb;
 
 const SSE_QUERY = 'https://query.sse.com.cn/commonSoaQuery.do';
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
@@ -121,7 +121,7 @@ export function briefName(fullName: string) {
 
 export function assertAdmin(request: Request) {
   const password = request.headers.get('x-admin-password') || '';
-  const expected = env.ADMIN_PASSWORD || '';
+  const expected = process.env.ADMIN_PASSWORD || '';
   if (!expected || password !== expected) {
     return new Response(JSON.stringify({ message: '管理员密码错误或尚未配置。' }), {
       status: 401,
