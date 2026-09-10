@@ -1,5 +1,7 @@
 # REITs 行业周报工作台
 
+🌐 **在线体验：[reits-weekly-trace.vercel.app](https://reits-weekly-trace.vercel.app/)**
+
 一个面向中国公募 REITs 市场的智能周报工作台，自动追踪上交所、深交所 REITs 项目动态，识别一级市场申报、问询、反馈等关键进展，并借助 AI 生成清晰、可核验的简报内容。
 
 ## 主要功能
