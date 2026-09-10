@@ -1,5 +1,5 @@
 import { getDb } from '@/db';
-import { jsonHeaders, latestRun, listCurrentWeek, refreshWeek, todayChina } from '@/lib/reits';
+import { demoCurrentWeek, jsonHeaders, latestRun, listCurrentWeek, refreshWeek, todayChina } from '@/lib/reits';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -8,7 +8,12 @@ export async function GET(request: Request) {
   if (refresh) {
     await maybeRefresh(date).catch(() => undefined);
   }
-  const db = getDb();
+  let db;
+  try {
+    db = getDb();
+  } catch {
+    return Response.json({ ...demoCurrentWeek(date), latestRun: null }, { headers: jsonHeaders() });
+  }
   const payload = await listCurrentWeek(db, date);
   const run = await latestRun(db);
   return Response.json({ ...payload, latestRun: run }, { headers: jsonHeaders() });

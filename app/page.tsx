@@ -41,7 +41,7 @@ type VisitorArchive = {
   records: ReitsRecord[];
 };
 
-const localKey = 'reits-live-visitor-edits-v1';
+const localKey = 'reits-live-visitor-edits-v2';
 const visitorArchiveKey = 'reits-visitor-local-archives-v1';
 
 export default function Home() {

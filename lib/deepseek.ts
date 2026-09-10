@@ -33,7 +33,7 @@ export async function generateDeepSeekBrief(record: BriefMaterial): Promise<Deep
         model: 'deepseek-flash',
         reasoning: { effort: 'low' },
         max_output_tokens: 1600,
-        instructions: buildInstructions(),
+        instructions: buildInstructions(record),
         input: buildMaterial(record),
       }),
       signal: controller.signal,
@@ -42,7 +42,7 @@ export async function generateDeepSeekBrief(record: BriefMaterial): Promise<Deep
     if (!response.ok) throw new Error(classifyDeepSeekError(response.status));
     const data = (await response.json()) as DeepSeekResponse;
     const brief = normalizeBrief(extractOutputText(data));
-    validateBrief(brief);
+    validateBrief(brief, record);
     return {
       brief,
       inputTokens: numberValue(data.usage?.input_tokens),
@@ -68,9 +68,19 @@ export function sourceSignature(record: BriefMaterial) {
   });
 }
 
-function buildInstructions() {
-  return `你是公募REITs行业周报撰写助手。请仅依据用户提供的交易所材料，输出一段250至400字的中文简报正文。
-要求：使用金融专业书面语并客观陈述；不得分点；不得使用感叹号；不得编造材料未披露的信息；不得机械复述字段名称；不得重复简报标题；材料不足时明确说明未披露，不得引用外部知识。只输出正文，不要标题、解释、引用列表或Markdown。`;
+function buildInstructions(record: BriefMaterial) {
+  return `你是公募REITs行业周报撰写助手。只依据用户提供的交易所页面、公告和文件摘录撰写一段中文简报正文，不得调用外部知识。
+
+通用规则：
+1. 使用金融专业书面语，客观、紧凑、单段呈现；不分点、不使用感叹号，不重复标题。
+2. 正文使用项目简称，不写基金全称；删除“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，也不写基金管理人、专项计划名称或“此前于某日获受理”等无关流程回顾。
+3. 信息以本次最新文件为先；最新文件未涉及的字段，才可沿用同项目最新招募说明书。不同文件相互矛盾时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。
+4. 申报且无附件时，只写状态及交易所页面已经披露的事实，不强行补充底层资产、估值或发行安排，也不为了凑字数反复说明“尚未披露”。材料充分时控制在250至400字；无附件的申报项目可短至80至180字。
+5. 反馈/问询只概括监管关注的大类主题，不展开逐项问题；回复反馈优先写估值参数、评估基准日和评估值变化，再概括其他回复；所有比例和金额应交叉核算。
+6. 首发与扩募是项目属性，不是进度。扩募项目沿用对应阶段模板，标题和正文明确“扩募”，资产部分只介绍本次新增资产。
+7. 只输出正文，不输出标题、说明、引用列表、页码或Markdown。
+
+本条阶段规则：${stageInstruction(record)}`;
 }
 
 function buildMaterial(record: BriefMaterial) {
@@ -80,9 +90,27 @@ function buildMaterial(record: BriefMaterial) {
 进度类型：${record.progressType}
 更新时间：${record.updateDate}
 原始权益人：${record.originator || '材料未披露'}
-当前规则底稿：${record.brief}
+可复用事实底稿（不得照搬其中不合规则的措辞）：${record.brief}
 交易所原文摘录：${stripHtml(record.sourceHtml) || '暂无结构化原文摘录'}
-相关文件：${record.files.map((file) => `${file.label}：${file.url}`).join('；') || '暂无需展示的原文件'}`;
+相关文件：${record.files.map((file) => file.label).join('；') || '无附件'}`;
+}
+
+function stageInstruction(record: BriefMaterial) {
+  const expansion = /扩募/.test(`${record.shortName}${record.progressType}${record.files.map((file) => file.label).join('')}`)
+    ? '本项目为扩募，只写本次新增资产和本次扩募事项。'
+    : '';
+  const rules: Record<string, string> = {
+    申报: '按“时间—交易所—已申报—原始权益人”的顺序写；无招募说明书时不写底层资产。',
+    受理: '按“时间—获受理—原始权益人—底层资产核心参数”的顺序写，以招募说明书为准。',
+    '反馈/问询': '按“时间—监管动作—主要关注主题—其他意见—资产与原始权益人背景”的顺序写。',
+    回复反馈: '按“时间—回复动作—估值参数与评估值变化—其他主要回复—项目背景”的顺序写。',
+    注册生效: '按“时间—注册生效—资产概况—估值变化—资产持有方”的顺序写。',
+    询价: '写询价区间、询价时间、预计募集期和资产概况。',
+    发售: '写认购价格、发售时间、份额结构、预计募集规模和资产概况。',
+    认购结果: '写有效认购份额、确认比例、认购倍数、认购价格和最终募集规模。',
+    上市: '写上市日期、交易所、交易代码、基金要素、资产概况及发行结果。',
+  };
+  return `${rules[record.progressType] || '围绕本次最新披露动作和可核验事实撰写。'}${expansion}`;
 }
 
 function stripHtml(value: string) {
@@ -99,9 +127,10 @@ function normalizeBrief(value: string) {
     .trim();
 }
 
-function validateBrief(value: string) {
+function validateBrief(value: string, record: BriefMaterial) {
   const length = Array.from(value.replace(/\s/g, '')).length;
-  if (length < 250 || length > 400) throw new Error('invalid_length');
+  const minimum = record.progressType === '申报' && record.files.length === 0 ? 80 : 180;
+  if (length < minimum || length > 400) throw new Error('invalid_length');
   if (/[!！]/.test(value)) throw new Error('invalid_format');
   if (/(^|\s)[-•·]\s|(^|\s)\d+[.、]\s/.test(value)) throw new Error('invalid_format');
 }

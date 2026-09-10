@@ -37,6 +37,46 @@ const SZSE_FILE_BASE = 'https://reportdocs.static.szse.cn';
 
 export const seedRecords: ReitsRecord[] = [
   {
+    id: 'szse-5000079-2026-09-10',
+    exchange: '深交所',
+    fullName: '华安晶澳科技新能源封闭式基础设施证券投资基金',
+    shortName: '华安晶澳科技新能源REIT',
+    title: '华安晶澳科技新能源REIT申报至深交所',
+    status: '已申报',
+    progressType: '申报',
+    updateDate: '2026-09-10',
+    weekStart: '2026-09-07',
+    weekEnd: '2026-09-10',
+    originator: '晶澳太阳能投资（中国）有限公司;朝阳龙盛太阳能发电有限公司',
+    brief:
+      '9月10日，深交所网站显示，华安晶澳科技新能源REIT项目状态为“已申报”，原始权益人为晶澳太阳能投资（中国）有限公司、朝阳龙盛太阳能发电有限公司。',
+    note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
+    files: [],
+    sourceUrl: 'https://reits.szse.cn/projectdynamic/detail/index.html?id=5000079',
+    sourceHtml:
+      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>深交所 REITs 项目动态详情页显示，华安晶澳科技新能源封闭式基础设施证券投资基金<mark>项目状态为“已申报”</mark>，更新时间为<mark>2026-09-10</mark>，原始权益人为<mark>晶澳太阳能投资（中国）有限公司、朝阳龙盛太阳能发电有限公司</mark>。</p>',
+  },
+  {
+    id: 'sse-894cbcc4623047c385444030dd83f921-2026-09-10',
+    exchange: '上交所',
+    fullName: '国泰海通上实租赁住房封闭式基础设施证券投资基金',
+    shortName: '国泰海通上实租赁住房REIT',
+    title: '国泰海通上实租赁住房REIT申报至上交所',
+    status: '已申报',
+    progressType: '申报',
+    updateDate: '2026-09-10',
+    weekStart: '2026-09-07',
+    weekEnd: '2026-09-10',
+    originator: '上实城开（上海）房屋租赁有限公司',
+    brief:
+      '9月10日，上交所网站显示，国泰海通上实租赁住房REIT项目状态为“已申报”，原始权益人为上实城开（上海）房屋租赁有限公司。',
+    note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
+    files: [],
+    sourceUrl: 'https://www.sse.com.cn/reits/info/index_detail.shtml?audit_id=894cbcc4623047c385444030dd83f921',
+    sourceHtml:
+      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>上交所 REITs 项目动态详情页显示，国泰海通上实租赁住房封闭式基础设施证券投资基金<mark>项目状态为“已申报”</mark>，更新时间为<mark>2026-09-10</mark>，原始权益人为<mark>上实城开（上海）房屋租赁有限公司</mark>。</p>',
+  },
+  {
     id: 'sse-2b6853bdbec648e0821425c40f6d5b45-2026-09-07',
     exchange: '上交所',
     fullName: '嘉实京东仓储物流封闭式基础设施证券投资基金',
@@ -64,7 +104,7 @@ export const seedRecords: ReitsRecord[] = [
     ],
     sourceUrl: SSE_REFERER,
     sourceHtml:
-      '<h3>对应原文摘录</h3><p><span class="page-ref">项目动态页</span><mark>项目状态更新为“已反馈”</mark>。来源：上交所 REITs 项目动态详情页。</p><p><span class="page-ref">反馈意见第1-8页</span>上交所《受理反馈意见》列明的主要问题包括：<mark>业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理</mark>。</p><p><span class="page-ref">反馈意见第9-10页</span>《受理反馈意见》“六、其他反馈问题”包括：<mark>扩募条件、共管账户、基金收益水平、信息披露、资产投保情况</mark>。</p><p><span class="page-ref">招募说明书第4页、第30-31页</span>招募说明书草案显示，<mark>原始权益人为北京京东耀弘管理咨询有限公司</mark>，拟购入项目为<mark>京东西北电子商务营业中心（京东二期）项目、京东安徽电子商务产业园二期项目</mark>，项目所在地分别为<mark>陕西省西安市灞桥区、安徽省合肥市长丰县</mark>。</p><p><span class="page-ref">招募说明书第35页</span>最新发布的受理反馈意见未披露调整后估值，估值数据沿用招募说明书草案“不动产项目资产评估以及现金流预测表”：西安项目估值规模为4.63亿元，合肥项目估值规模为5.71亿元，<mark>拟购入不动产资产评估值合计10.34亿元</mark>。</p>',
+      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span><mark>项目状态更新为“已反馈”</mark>。来源：上交所 REITs 项目动态详情页。</p><p><span class="page-ref">反馈意见第1-8页</span>上交所《受理反馈意见》列明的主要问题包括：<mark>业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理</mark>。</p><p><span class="page-ref">反馈意见第9-10页</span>《受理反馈意见》“六、其他反馈问题”包括：<mark>扩募条件、共管账户、基金收益水平、信息披露、资产投保情况</mark>。</p><p><span class="page-ref">招募说明书第4页、第30-31页</span>招募说明书草案显示，<mark>原始权益人为北京京东耀弘管理咨询有限公司</mark>，拟购入项目为<mark>京东西北电子商务营业中心（京东二期）项目、京东安徽电子商务产业园二期项目</mark>，项目所在地分别为<mark>陕西省西安市灞桥区、安徽省合肥市长丰县</mark>。</p><p><span class="page-ref">招募说明书第35页</span>最新发布的受理反馈意见未披露调整后估值，估值数据沿用招募说明书草案“不动产项目资产评估以及现金流预测表”：西安项目估值规模为4.63亿元，合肥项目估值规模为5.71亿元，<mark>拟购入不动产资产评估值合计10.34亿元</mark>。</p>',
   },
   {
     id: 'szse-huaxia-zhonghai-2026-09-07',
@@ -79,12 +119,12 @@ export const seedRecords: ReitsRecord[] = [
     weekEnd: '2026-09-09',
     originator: '中海企业发展集团有限公司',
     brief:
-      '9月7日，深交所网站显示，华夏中海商业不动产REIT审核状态为“已申报”。项目原始权益人为中海企业发展集团有限公司。深交所项目详情页显示，该项目当前仍处于申报阶段，披露材料、问询与回复、上市委会议结论、终止审核通知、注册结果通知及现金重组报告书附件均为空。因此，本简报仅依据项目动态页列示项目名称、更新时间、审核状态和原始权益人，不对底层资产名称、区位、面积、估值、运营情况及发行安排作进一步描述。',
-    note: '申报阶段暂无招募说明书等原文件，后半段为依据项目动态页附件状态形成的补充说明。',
+      '9月7日，深交所网站显示，华夏中海商业不动产REIT审核状态为“已申报”，项目原始权益人为中海企业发展集团有限公司。',
+    note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
     sourceUrl: 'https://reits.szse.cn/projectdynamic/index.html',
     sourceHtml:
-      '<h3>对应原文摘录</h3><p><span class="page-ref">项目动态页</span>深交所 REITs 项目动态详情页显示，华夏中海封闭式商业不动产证券投资基金<mark>审核状态为“已申报”</mark>，更新时间为<mark>2026-09-07</mark>。</p><p><span class="page-ref">项目动态页</span>项目动态详情页显示，<mark>原始权益人为中海企业发展集团有限公司</mark>。</p><p>补充说明：该项目详情页披露材料、问询与回复、上市委会议结论、终止审核通知、注册结果通知及现金重组报告书附件均为空，因此底层资产和发行安排未在本页进一步展开。</p>',
+      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>深交所 REITs 项目动态详情页显示，华夏中海封闭式商业不动产证券投资基金<mark>审核状态为“已申报”</mark>，更新时间为<mark>2026-09-07</mark>，原始权益人为<mark>中海企业发展集团有限公司</mark>。</p>',
   },
 ];
 
@@ -112,6 +152,14 @@ export function weekRangeFor(dateText = todayChina()) {
 export function displayDate(dateText: string) {
   const [, month, day] = dateText.split('-');
   return `${Number(month)}月${Number(day)}日`;
+}
+
+export function demoCurrentWeek(dateText = todayChina()) {
+  const range = weekRangeFor(dateText);
+  return {
+    range,
+    records: seedRecordsForRange(range.start, range.end),
+  };
 }
 
 export function briefName(fullName: string) {
@@ -333,7 +381,7 @@ export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
     .prepare(
       `INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json)
        VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET archived_at = excluded.archived_at, snapshot_json = excluded.snapshot_json`,
+       ON CONFLICT(id) DO NOTHING`,
     )
     .bind(id, range.start, range.end, new Date().toISOString(), JSON.stringify(records))
     .run();
@@ -387,7 +435,7 @@ async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: 
   const progressType = inferProgress(status, files);
   const shortName = briefName(project.cmpnm);
   const originator = clean(project.primitiveInterestsor);
-  const fileText = files.length ? `，并披露${files.map((file) => `《${file.label}》`).join('、')}` : '';
+  const fileText = files.length ? `。项目详情页同步披露${files.map((file) => `《${file.label}》`).join('、')}` : '';
   return {
     id: `szse-${project.prjid}-${project.updtdt}`,
     exchange: '深交所',
@@ -400,7 +448,7 @@ async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: 
     weekStart,
     weekEnd,
     originator,
-    brief: `${displayDate(project.updtdt)}，深交所网站显示，${shortName}项目状态为“${status}”${fileText}。项目原始权益人为${originator}。本条依据深交所项目动态页及公开附件清单自动生成，附件正文尚未解析的信息不作补充。`,
+    brief: `${displayDate(project.updtdt)}，深交所网站显示，${shortName}项目状态为“${status}”，项目原始权益人为${originator}${fileText}。`,
     files,
     sourceUrl: detailUrl,
     sourceHtml: buildSzseSourceHtml(project, status, files),
@@ -432,7 +480,8 @@ function szseFiles(detail: SzseProjectDetail): ReitsFile[] {
 
 function buildSzseSourceHtml(project: SzseProject, status: string, files: ReitsFile[]) {
   const fileList = files.map((file) => `<mark>${escapeHtml(file.label)}</mark>`).join('、');
-  return `<h3>对应原文摘录</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.cmpnm)}<mark>项目状态为“${escapeHtml(status)}”</mark>，更新时间为<mark>${escapeHtml(project.updtdt)}</mark>。</p><p><span class="page-ref">项目动态页</span>项目原始权益人为<mark>${escapeHtml(clean(project.primitiveInterestsor))}</mark>。</p><p><span class="page-ref">附件列表</span>${fileList || '项目详情页暂未披露附件。'}</p>`;
+  const filesHtml = fileList ? `<p><span class="page-ref">附件列表</span>${fileList}</p>` : '';
+  return `<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.cmpnm)}<mark>项目状态为“${escapeHtml(status)}”</mark>，更新时间为<mark>${escapeHtml(project.updtdt)}</mark>，项目原始权益人为<mark>${escapeHtml(clean(project.primitiveInterestsor))}</mark>。</p>${filesHtml}`;
 }
 
 async function mapSseProject(project: SseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
@@ -520,19 +569,20 @@ function buildSseBrief(project: SseProject, progressType: string, feedbackFiles:
   const originator = clean(project.FULL_NAME);
   if (progressType === '反馈/问询') {
     const fileText = feedbackFiles.length ? `，并披露${feedbackFiles.map((file) => `《${file.label}》`).join('、')}` : '';
-    return `${date}，上交所网站显示，${shortName}项目状态更新为“${sseStatus(project)}”${fileText}。由于当前自动简报生成接口尚未接入 PDF 正文解析，本条先依据交易所项目动态页和文件清单形成底稿：项目原始权益人为${originator}，项目状态、更新时间和原文件链接均来自上交所项目详情页。待接入简报生成接口后，系统将进一步读取反馈意见正文，按监管关注事项、其他反馈意见及项目背景形成完整周报简报。`;
+    return `${date}，上交所网站显示，${shortName}项目状态更新为“${sseStatus(project)}”${fileText}，项目原始权益人为${originator}。`;
   }
   if (progressType === '受理') {
-    return `${date}，上交所网站显示，${shortName}项目状态为“已受理”。项目原始权益人为${originator}。${prospectus ? `网站已披露${prospectus.label}，正式简报将以最新招募说明书原文为基础提取底层资产、区位、面积、估值及发行安排。` : '项目详情页暂未抓取到招募说明书文件，底层资产等信息不作补充。'}`;
+    return `${date}，上交所网站显示，${shortName}项目状态为“已受理”，项目原始权益人为${originator}。${prospectus ? `项目详情页已披露《${prospectus.label}》。` : ''}`;
   }
-  return `${date}，上交所网站显示，${shortName}项目状态为“${sseStatus(project)}”。项目原始权益人为${originator}。本条依据交易所项目动态页自动生成，文件未披露或尚未完成 PDF 解析的信息不作补充。`;
+  return `${date}，上交所网站显示，${shortName}项目状态为“${sseStatus(project)}”，项目原始权益人为${originator}。`;
 }
 
 function buildSseSourceHtml(project: SseProject, status: string, files: ReitsFile[], prospectus?: ReitsFile) {
   const fileList = [...files, ...(prospectus ? [prospectus] : [])]
     .map((file) => `<mark>${escapeHtml(file.label)}</mark>`)
     .join('、');
-  return `<h3>对应原文摘录</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.AUDIT_NAME)}<mark>项目状态为“${status}”</mark>，更新时间为<mark>${project.PUBLISH_DATE}</mark>。</p><p><span class="page-ref">项目动态页</span>项目原始权益人为<mark>${escapeHtml(clean(project.FULL_NAME))}</mark>。</p><p><span class="page-ref">附件列表</span>${fileList || '项目详情页暂未抓取到附件。'}</p>`;
+  const filesHtml = fileList ? `<p><span class="page-ref">附件列表</span>${fileList}</p>` : '';
+  return `<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.AUDIT_NAME)}<mark>项目状态为“${status}”</mark>，更新时间为<mark>${project.PUBLISH_DATE}</mark>，项目原始权益人为<mark>${escapeHtml(clean(project.FULL_NAME))}</mark>。</p>${filesHtml}`;
 }
 
 function rowToRecord(row: Record<string, unknown>): ReitsRecord {
@@ -565,8 +615,13 @@ function seedRecordsForRange(start: string, end: string) {
 
 function inferProgress(status: string, files: ReitsFile[]) {
   const hasReply = files.some((file) => /回复|答复/.test(file.label));
+  if (files.some((file) => /上市交易/.test(file.label))) return '上市';
+  if (files.some((file) => /认购申请确认比例|认购结果/.test(file.label))) return '认购结果';
+  if (files.some((file) => /份额发售公告/.test(file.label))) return '发售';
+  if (files.some((file) => /询价公告/.test(file.label))) return '询价';
   if (status === '已反馈') return hasReply ? '回复反馈' : '反馈/问询';
   if (status === '已问询') return hasReply ? '回复反馈' : '反馈/问询';
+  if (status === '已回复交易所意见') return '回复反馈';
   if (status === '已受理') return '受理';
   if (status === '已申报') return '申报';
   if (status === '注册生效') return '注册生效';
@@ -574,23 +629,37 @@ function inferProgress(status: string, files: ReitsFile[]) {
 }
 
 function titleFor(shortName: string, progressType: string, exchange: string) {
-  if (progressType === '反馈/问询') return `${shortName}获${exchange}反馈意见`;
+  if (progressType === '反馈/问询') return exchange === '深交所' ? `${shortName}获深交所问询` : `${shortName}获上交所反馈意见`;
   if (progressType === '回复反馈') return `${shortName}回复反馈`;
   if (progressType === '受理') return `${shortName}获受理`;
   if (progressType === '申报') return `${shortName}申报至${exchange}`;
-  if (progressType === '注册生效') return `${shortName}注册生效`;
+  if (progressType === '注册生效') return `${shortName}获批`;
+  if (progressType === '询价') return `${shortName}发布询价公告`;
+  if (progressType === '发售') return `${shortName}发布基金份额发售公告`;
+  if (progressType === '认购结果') return `${shortName}披露认购申请确认比例`;
+  if (progressType === '上市') return `${shortName}正式上市`;
   return `${shortName}${progressType}`;
 }
 
 function labelForFile(title: string) {
   if (/招募说明书/.test(title)) return '招募说明书草案原文';
   if (/反馈意见/.test(title)) return /答复|回复/.test(title) ? '反馈回复原文' : '受理反馈意见原文';
+  if (/问询函/.test(title)) return /答复|回复/.test(title) ? '问询回复原文' : '审核问询函原文';
+  if (/认购申请确认比例|认购结果/.test(title)) return '认购申请确认比例公告原文';
+  if (/份额发售公告/.test(title)) return '基金份额发售公告原文';
+  if (/询价公告/.test(title)) return '基金份额询价公告原文';
+  if (/上市交易/.test(title)) return '上市交易提示性公告原文';
   return title;
 }
 
 function kindForFile(title: string) {
   if (/招募说明书/.test(title)) return '招募说明书';
   if (/反馈意见/.test(title)) return /答复|回复/.test(title) ? '回复反馈' : '反馈意见';
+  if (/问询函/.test(title)) return /答复|回复/.test(title) ? '回复反馈' : '问询函';
+  if (/认购申请确认比例|认购结果/.test(title)) return '认购结果';
+  if (/份额发售公告/.test(title)) return '发售';
+  if (/询价公告/.test(title)) return '询价';
+  if (/上市交易/.test(title)) return '上市';
   return '原文件';
 }
 
