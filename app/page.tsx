@@ -218,7 +218,7 @@ export default function Home() {
     setMessage('正在抓取交易所数据并生成简报...');
     const response = await fetch('/api/admin/refresh', { method: 'POST', headers: adminHeaders() });
     const data = (await response.json().catch(() => ({}))) as { message?: string };
-    setMessage(response.ok ? `抓取完成：${data.message || '已刷新。'}` : '抓取失败，请检查管理员密码或稍后重试。');
+    setMessage(response.ok ? `抓取完成：${data.message || '已刷新。'}` : `抓取失败：${data.message || '交易所或简报服务暂时不可用，请稍后重试。'}`);
     if (response.ok) await loadData();
   }
 

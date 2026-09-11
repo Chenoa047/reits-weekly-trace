@@ -37,12 +37,12 @@ export type ReitsRecord = {
 
 type D1 = AppDb;
 
-const SSE_QUERY = 'https://query.sse.com.cn/commonSoaQuery.do';
+const SSE_QUERY_ORIGINS = ['https://query.sse.com.cn', 'http://query.sse.com.cn'] as const;
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
 const SSE_BULLETIN_REFERER = 'https://www.sse.com.cn/reits/announcements/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
 const SSE_ANNOUNCEMENT_BASE = 'https://www.sse.com.cn';
-const SZSE_ORIGINS = ['https://reits.szse.cn', 'https://www.szse.cn'] as const;
+const SZSE_ORIGINS = ['https://reits.szse.cn', 'http://reits.szse.cn'] as const;
 const SZSE_FILE_BASE = 'https://reportdocs.static.szse.cn';
 const SZSE_ANNOUNCEMENT_BASE = 'https://disc.static.szse.cn/download';
 
@@ -333,7 +333,9 @@ export async function refreshWeek(
       fetchSzseRecords(start, end),
     ]);
     if (sseResult.status === 'rejected' && szseResult.status === 'rejected') {
-      throw new Error('上交所和深交所抓取均失败，请稍后重试。');
+      throw new Error(
+        `上交所抓取失败（${describeFetchError(sseResult.reason)}）；深交所抓取失败（${describeFetchError(szseResult.reason)}）。`,
+      );
     }
 
     const sseRecords = sseResult.status === 'fulfilled' ? sseResult.value : [];
@@ -476,9 +478,9 @@ async function fetchSseRecords(
   start: string,
   end: string,
 ): Promise<ReitsRecord[]> {
-  const url = `${SSE_QUERY}?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1`;
+  const path = '/commonSoaQuery.do?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1';
   const [data, bulletins] = await Promise.all([
-    withRetry(() => fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER)),
+    withRetry(() => fetchSseJson<{ result?: SseProject[] }>(path, SSE_REFERER)),
     fetchSseBulletins(start, end).catch(() => []),
   ]);
   const projects = (data.result || []).filter(
@@ -717,8 +719,8 @@ async function mapSseProject(
 }
 
 async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
-  const url = `${SSE_QUERY}?isPagination=false&audit_id=${encodeURIComponent(auditId)}&sqlId=ZQ_GGJG`;
-  const data = await fetchJson<{ result?: SseFile[] }>(url, SSE_REFERER);
+  const path = `/commonSoaQuery.do?isPagination=false&audit_id=${encodeURIComponent(auditId)}&sqlId=ZQ_GGJG`;
+  const data = await fetchSseJson<{ result?: SseFile[] }>(path, SSE_REFERER);
   return (data.result || []).map((file) => {
     const kind = classifyDocument(file.FILE_TITLE);
     return {
@@ -752,10 +754,7 @@ async function fetchSseBulletins(start: string, end: string, fundCode = '') {
     'pageHelp.pageNo': '1',
   });
   const data = await withRetry(() =>
-    fetchJson<{ result?: SseBulletin[] }>(
-      `${SSE_QUERY}?${query}`,
-      SSE_BULLETIN_REFERER,
-    ),
+    fetchSseJson<{ result?: SseBulletin[] }>(`/commonSoaQuery.do?${query}`, SSE_BULLETIN_REFERER),
   );
   return data.result || [];
 }
@@ -957,18 +956,28 @@ async function fetchJson<T>(url: string, referer: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function fetchSseJson<T>(path: string, referer: string): Promise<T> {
+  const failures: string[] = [];
+  for (const origin of SSE_QUERY_ORIGINS) {
+    try {
+      return await fetchJson<T>(`${origin}${path}`, referer);
+    } catch (error) {
+      failures.push(`${origin.startsWith('https:') ? 'HTTPS' : 'HTTP'} ${describeFetchError(error)}`);
+    }
+  }
+  throw new Error([...new Set(failures)].join('、'));
+}
+
 async function fetchSzseJson<T>(path: string): Promise<T> {
   const failures: string[] = [];
   for (const origin of SZSE_ORIGINS) {
-    const referer = origin.includes('www.')
-      ? `${origin}/www/reits/projectdynamic/`
-      : `${origin}/projectdynamic/index.html`;
+    const referer = `${origin}/projectdynamic/index.html`;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await fetchJson<T>(`${origin}${path}`, referer);
       } catch (error) {
         failures.push(
-          `${origin.includes('www.') ? '官网' : 'REITs站'}${describeFetchError(error)}`,
+          `${origin.startsWith('https:') ? 'HTTPS' : 'HTTP'} ${describeFetchError(error)}`,
         );
       }
     }
