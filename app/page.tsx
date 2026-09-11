@@ -41,15 +41,34 @@ type VisitorArchive = {
   records: ReitsRecord[];
 };
 
+type BlackboardMessage = {
+  id: string;
+  author: 'visitor' | 'chen';
+  body: string;
+  createdAt: string;
+};
+
+type BlackboardThread = {
+  id: string;
+  nickname: string;
+  email: string;
+  messages: BlackboardMessage[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 const localKey = 'reits-live-visitor-edits-v2';
 const visitorArchiveKey = 'reits-visitor-local-archives-v1';
+const blackboardKey = 'reits-blackboard-demo-v2';
+const blackboardVisitorKey = 'reits-blackboard-demo-visitor-v1';
+const blackboardUpdateEvent = 'reits-blackboard-demo-update';
 
 export default function Home() {
   const [payload, setPayload] = useState<ApiPayload | null>(null);
   const [records, setRecords] = useState<ReitsRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'intro' | 'briefs' | 'admin'>('briefs');
+  const [activeTab, setActiveTab] = useState<'intro' | 'briefs' | 'blackboard' | 'admin'>('briefs');
   const [typeFilter, setTypeFilter] = useState('全部');
   const [exchangeFilter, setExchangeFilter] = useState('全部');
   const [compareRecord, setCompareRecord] = useState<ReitsRecord | null>(null);
@@ -262,6 +281,16 @@ export default function Home() {
           <TabButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')}>后台管理</TabButton>
         </nav>
 
+        <button
+          className={`blackboard-easter-egg ${activeTab === 'blackboard' ? 'active' : ''}`}
+          type="button"
+          title="打开小黑板"
+          aria-label="打开小黑板"
+          onClick={() => setActiveTab('blackboard')}
+        >
+          <span aria-hidden="true">✎</span><em>小黑板</em>
+        </button>
+
         {message ? <div className="mb-5 border border-[#e0c27c] bg-[#f7f1e0] px-4 py-3 text-sm font-semibold">{message}</div> : null}
 
         {activeTab === 'intro' ? <IntroPanel /> : null}
@@ -292,6 +321,7 @@ export default function Home() {
             latestRun={payload?.latestRun}
           />
         ) : null}
+        {activeTab === 'blackboard' ? <BlackboardDemo /> : null}
         {activeTab === 'admin' ? (
           <AdminPanel
             adminPassword={adminPassword}
@@ -307,6 +337,149 @@ export default function Home() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function BlackboardDemo() {
+  const [thread, setThread] = useState<BlackboardThread | null>(null);
+  const [draftEmail, setDraftEmail] = useState('');
+  const [draftNickname, setDraftNickname] = useState('');
+  const [draft, setDraft] = useState('');
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    const threads = readBlackboardThreads();
+    const currentId = localStorage.getItem(blackboardVisitorKey);
+    const current = threads.find((item) => item.id === currentId) || threads[0] || null;
+    if (current) {
+      setThread(current);
+      setDraftEmail(current.email);
+      setDraftNickname(current.nickname);
+      localStorage.setItem(blackboardVisitorKey, current.id);
+    }
+  }, []);
+
+  function enterBlackboard() {
+    const email = draftEmail.trim();
+    const nickname = draftNickname.trim();
+    if (!nickname) {
+      setNotice('请先告诉我们怎么称呼您。');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setNotice('请输入有效的邮箱地址。');
+      return;
+    }
+    const threads = readBlackboardThreads();
+    const existing = threads.find((item) => item.email.toLowerCase() === email.toLowerCase());
+    const now = new Date().toISOString();
+    const nextThread = existing
+      ? { ...existing, nickname }
+      : { id: crypto.randomUUID(), nickname, email, messages: [], createdAt: now, updatedAt: now };
+    saveBlackboardThreads(existing ? threads.map((item) => item.id === existing.id ? nextThread : item) : [nextThread, ...threads]);
+    localStorage.setItem(blackboardVisitorKey, nextThread.id);
+    setThread(nextThread);
+    setNotice('已进入您的私密留言空间。Demo 不会发送邮件或上传邮箱。');
+  }
+
+  function sendMessage() {
+    const body = draft.trim();
+    if (!thread || !body) {
+      setNotice('请先填写留言内容。');
+      return;
+    }
+    const now = new Date().toISOString();
+    const nextThread = {
+      ...thread,
+      updatedAt: now,
+      messages: [...thread.messages, { id: crypto.randomUUID(), author: 'visitor' as const, body, createdAt: now }],
+    };
+    const threads = readBlackboardThreads().map((item) => item.id === thread.id ? nextThread : item);
+    saveBlackboardThreads(threads);
+    setThread(nextThread);
+    setDraft('');
+    setNotice('留言已保存在当前浏览器中。管理员回复后，您将在这里看到完整记录。');
+  }
+
+  useEffect(() => {
+    function syncThread() {
+      if (!thread) return;
+      const current = readBlackboardThreads().find((item) => item.id === thread.id);
+      if (current) setThread(current);
+    }
+    window.addEventListener(blackboardUpdateEvent, syncThread);
+    return () => window.removeEventListener(blackboardUpdateEvent, syncThread);
+  }, [thread]);
+
+  return (
+    <section className="blackboard-shell">
+      <aside className="blackboard-intro">
+        <span className="blackboard-kicker">PRIVATE MESSAGE BOARD</span>
+        <h2>小黑板</h2>
+        <p className="blackboard-greeting">给 Chenyu 留言，欢迎交流！</p>
+        <p className="blackboard-privacy">留言内容仅您本人和网站管理员可以查看</p>
+        <div className="blackboard-demo-note">
+          <strong>本地交互 Demo</strong>
+          <p>这里的数据只保存在当前浏览器中。正式版将通过邮箱验证身份，并为每位访客建立独立会话。</p>
+        </div>
+      </aside>
+
+      <div className="blackboard-workspace">
+        {!thread ? (
+          <div className="blackboard-entry">
+            <span>第一步</span>
+            <h3>进入您的私密留言空间</h3>
+            <p>留下称呼和邮箱，用于模拟您的专属留言空间。Demo 不会发送验证邮件，也不会上传这些信息。</p>
+            <label htmlFor="blackboard-nickname">怎么称呼您？</label>
+            <input id="blackboard-nickname" className="field" type="text" autoComplete="nickname" maxLength={30} placeholder="您的昵称" value={draftNickname} onChange={(event) => setDraftNickname(event.target.value)} />
+            <label htmlFor="blackboard-email">邮箱地址</label>
+            <input id="blackboard-email" className="field" type="email" autoComplete="email" placeholder="name@example.com" value={draftEmail} onChange={(event) => setDraftEmail(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && enterBlackboard()} />
+            <button className="btn-primary" onClick={enterBlackboard}>进入小黑板</button>
+          </div>
+        ) : (
+          <>
+            <header className="blackboard-toolbar">
+              <div>
+                <span>您的完整聊天记录</span>
+                <strong>{thread.nickname} · {thread.email}</strong>
+              </div>
+            </header>
+            <p className="blackboard-demo-guide">您只能向管理员发送信息。Chenyu 登录后台回复后，回复内容会显示在这条对话中。</p>
+            <BlackboardMessages thread={thread} />
+            <div className="blackboard-composer">
+              <label htmlFor="blackboard-message">写下您的留言</label>
+              <textarea id="blackboard-message" className="field" maxLength={500} placeholder="想对 Chenyu 说些什么？" value={draft} onChange={(event) => setDraft(event.target.value)} />
+              <div>
+                <span>{draft.length}/500</span>
+                <button className="btn-primary" onClick={sendMessage}>发送留言</button>
+              </div>
+            </div>
+          </>
+        )}
+        {notice ? <p className="blackboard-notice" role="status">{notice}</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function BlackboardMessages({ thread }: { thread: BlackboardThread }) {
+  return (
+    <div className="blackboard-thread" aria-live="polite">
+      {thread.messages.length ? thread.messages.map((item) => (
+        <article className={`blackboard-message ${item.author}`} key={item.id}>
+          <div>
+            <strong>{item.author === 'chen' ? 'Chenyu' : thread.nickname}</strong>
+            <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('zh-CN', { hour12: false })}</time>
+          </div>
+          <p>{item.body}</p>
+        </article>
+      )) : (
+        <div className="blackboard-empty">
+          <strong>还没有留言</strong>
+          <p>在下方写下想交流的内容，开始这段私密对话。</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -585,6 +758,7 @@ function AdminPanel(props: {
       </div>
       {props.adminAuthed ? (
         <>
+          <AdminBlackboardDemo />
           <div className="flex flex-wrap gap-3 border border-[#e0c27c] bg-[#f7f1e0] p-5">
             <button className="btn-primary" onClick={props.adminRefresh}>立即抓取并生成简报</button>
             <button className="btn-muted" onClick={props.adminArchive}>归档当前周</button>
@@ -605,6 +779,83 @@ function AdminPanel(props: {
           </div>
         </>
       ) : null}
+    </section>
+  );
+}
+
+function AdminBlackboardDemo() {
+  const [threads, setThreads] = useState<BlackboardThread[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [draft, setDraft] = useState('');
+  const [notice, setNotice] = useState('');
+  const selected = threads.find((thread) => thread.id === selectedId) || threads[0] || null;
+
+  useEffect(() => {
+    const next = readBlackboardThreads();
+    setThreads(next);
+    setSelectedId((current) => current || next[0]?.id || '');
+  }, []);
+
+  function reply() {
+    const body = draft.trim();
+    if (!selected || !body) {
+      setNotice('请先选择访客并填写回复内容。');
+      return;
+    }
+    const now = new Date().toISOString();
+    const nextThread = {
+      ...selected,
+      updatedAt: now,
+      messages: [...selected.messages, { id: crypto.randomUUID(), author: 'chen' as const, body, createdAt: now }],
+    };
+    const next = threads.map((thread) => thread.id === selected.id ? nextThread : thread)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    saveBlackboardThreads(next);
+    setThreads(next);
+    setSelectedId(nextThread.id);
+    setDraft('');
+    setNotice(`已回复 ${selected.nickname}。`);
+  }
+
+  return (
+    <section className="admin-blackboard">
+      <header>
+        <div>
+          <p>小黑板留言</p>
+          <h2>访客私信收件箱</h2>
+        </div>
+        <span>{threads.length} 位访客</span>
+      </header>
+      {threads.length ? (
+        <div className="admin-blackboard-grid">
+          <nav className="blackboard-inbox-list" aria-label="留言访客列表">
+            {threads.map((thread) => (
+              <button className={thread.id === selected?.id ? 'active' : ''} key={thread.id} onClick={() => setSelectedId(thread.id)}>
+                <strong>{thread.nickname}</strong>
+                <span>{thread.email}</span>
+                <em>{thread.messages.at(-1)?.body || '尚未留言'}</em>
+              </button>
+            ))}
+          </nav>
+          {selected ? (
+            <div className="admin-blackboard-conversation">
+              <div className="admin-blackboard-person">
+                <div><span>当前访客</span><strong>{selected.nickname}</strong></div>
+                <small>{selected.email}</small>
+              </div>
+              <BlackboardMessages thread={selected} />
+              <div className="blackboard-composer">
+                <label htmlFor="admin-blackboard-reply">回复 {selected.nickname}</label>
+                <textarea id="admin-blackboard-reply" className="field" maxLength={500} placeholder={`回复 ${selected.nickname}……`} value={draft} onChange={(event) => setDraft(event.target.value)} />
+                <div><span>{draft.length}/500</span><button className="btn-primary" onClick={reply}>发送回复</button></div>
+              </div>
+              {notice ? <p className="blackboard-notice" role="status">{notice}</p> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="blackboard-inbox-empty"><strong>暂时没有访客留言</strong><p>收到留言后，将按访客昵称显示在这里。</p></div>
+      )}
     </section>
   );
 }
@@ -686,6 +937,46 @@ function dotDate(value: string) {
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function readBlackboardThreads(): BlackboardThread[] {
+  const saved = localStorage.getItem(blackboardKey);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return [];
+    }
+  }
+
+  try {
+    const legacy = JSON.parse(localStorage.getItem('reits-blackboard-demo-v1') || '{}') as {
+      email?: string;
+      nickname?: string;
+      messages?: BlackboardMessage[];
+    };
+    if (!legacy.email) return [];
+    const messages = Array.isArray(legacy.messages) ? legacy.messages : [];
+    const createdAt = messages[0]?.createdAt || new Date().toISOString();
+    const thread: BlackboardThread = {
+      id: crypto.randomUUID(),
+      nickname: legacy.nickname || '访客',
+      email: legacy.email,
+      messages,
+      createdAt,
+      updatedAt: messages.at(-1)?.createdAt || createdAt,
+    };
+    localStorage.setItem(blackboardKey, JSON.stringify([thread]));
+    return [thread];
+  } catch {
+    return [];
+  }
+}
+
+function saveBlackboardThreads(threads: BlackboardThread[]) {
+  localStorage.setItem(blackboardKey, JSON.stringify(threads));
+  window.dispatchEvent(new Event(blackboardUpdateEvent));
 }
 
 function readVisitorArchives() {
