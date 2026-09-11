@@ -267,14 +267,20 @@ export async function deleteRecord(db: D1, id: string) {
 export async function refreshWeek(
   db: D1,
   dateText = todayChina(),
-  options: { generateBriefs?: boolean; forceGenerate?: boolean } = {},
+  options: {
+    generateBriefs?: boolean;
+    forceGenerate?: boolean;
+    trigger?: 'scheduled' | 'manual' | 'recovery';
+  } = {},
 ) {
   const { start, end } = weekRangeFor(dateText);
   const runId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
+  const triggerLabel =
+    options.trigger === 'scheduled' ? '定时任务' : options.trigger === 'manual' ? '管理员手动更新' : '访问触发补抓';
   await db
     .prepare('INSERT INTO fetch_runs (id, started_at, status, week_start, week_end, message) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(runId, startedAt, 'running', start, end, '开始抓取交易所数据。')
+    .bind(runId, startedAt, 'running', start, end, `${triggerLabel}：开始抓取交易所数据。`)
     .run();
 
   let message = '';
@@ -285,6 +291,7 @@ export async function refreshWeek(
   let failedCount = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+  let runStatus: 'ok' | 'failed' = 'ok';
   try {
     const [sseResult, szseResult] = await Promise.allSettled([
       fetchSseRecords(start, end),
@@ -334,7 +341,7 @@ export async function refreshWeek(
       szseResult.status === 'fulfilled'
         ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
         : `深交所抓取失败，本次保留已有数据（${describeFetchError(szseResult.reason)}）`;
-    message = `${sseMessage}；${szseMessage}${aiMessage}。`;
+    message = `${triggerLabel}：${sseMessage}；${szseMessage}${aiMessage}。`;
     await db
       .prepare(
         'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
@@ -342,7 +349,8 @@ export async function refreshWeek(
       .bind(new Date().toISOString(), 'ok', sseCount, szseCount, message, runId)
       .run();
   } catch (error) {
-    message = error instanceof Error ? error.message : '抓取失败';
+    runStatus = 'failed';
+    message = `${triggerLabel}：${error instanceof Error ? error.message : '抓取失败'}`;
     await db
       .prepare(
         'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
@@ -351,6 +359,7 @@ export async function refreshWeek(
       .run();
   }
   return {
+    status: runStatus,
     runId,
     start,
     end,
@@ -391,9 +400,24 @@ export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
 
 async function fetchSseRecords(start: string, end: string): Promise<ReitsRecord[]> {
   const url = `${SSE_QUERY}?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1`;
-  const data = await fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER);
+  const data = await withRetry(() => fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER));
   const projects = (data.result || []).filter((item) => item.PUBLISH_DATE >= start && item.PUBLISH_DATE <= end);
   return Promise.all(projects.map((project) => mapSseProject(project, start, end)));
+}
+
+async function withRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function fetchSzseRecords(start: string, end: string) {

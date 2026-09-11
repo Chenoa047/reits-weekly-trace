@@ -379,7 +379,7 @@ function BlackboardDemo() {
     saveBlackboardThreads(existing ? threads.map((item) => item.id === existing.id ? nextThread : item) : [nextThread, ...threads]);
     localStorage.setItem(blackboardVisitorKey, nextThread.id);
     setThread(nextThread);
-    setNotice('已进入您的私密留言空间。Demo 不会发送邮件或上传邮箱。');
+    setNotice('已进入您的留言空间。邮箱仅保存在当前浏览器中，不会发送邮件或上传服务器。');
   }
 
   function sendMessage() {
@@ -417,10 +417,10 @@ function BlackboardDemo() {
         <span className="blackboard-kicker">PRIVATE MESSAGE BOARD</span>
         <h2>小黑板</h2>
         <p className="blackboard-greeting">给 Chenyu 留言，欢迎交流！</p>
-        <p className="blackboard-privacy">留言内容仅您本人和网站管理员可以查看</p>
+        <p className="blackboard-privacy">留言仅保存在当前设备和浏览器中</p>
         <div className="blackboard-demo-note">
-          <strong>本地交互 Demo</strong>
-          <p>这里的数据只保存在当前浏览器中。正式版将通过邮箱验证身份，并为每位访客建立独立会话。</p>
+          <strong>隐私说明</strong>
+          <p>留言和邮箱仅保存在当前设备的浏览器中，不会上传服务器；清除浏览器数据后无法恢复。</p>
         </div>
       </aside>
 
@@ -428,8 +428,8 @@ function BlackboardDemo() {
         {!thread ? (
           <div className="blackboard-entry">
             <span>第一步</span>
-            <h3>进入您的私密留言空间</h3>
-            <p>留下称呼和邮箱，用于模拟您的专属留言空间。Demo 不会发送验证邮件，也不会上传这些信息。</p>
+            <h3>进入您的设备内留言空间</h3>
+            <p>留下称呼和邮箱以进入您的设备内留言空间。网站不会发送验证邮件，也不会上传这些信息。</p>
             <label htmlFor="blackboard-nickname">怎么称呼您？</label>
             <input id="blackboard-nickname" className="field" type="text" autoComplete="nickname" maxLength={30} placeholder="您的昵称" value={draftNickname} onChange={(event) => setDraftNickname(event.target.value)} />
             <label htmlFor="blackboard-email">邮箱地址</label>
@@ -440,11 +440,11 @@ function BlackboardDemo() {
           <>
             <header className="blackboard-toolbar">
               <div>
-                <span>您的完整聊天记录</span>
+                <span>当前设备中的聊天记录</span>
                 <strong>{thread.nickname} · {thread.email}</strong>
               </div>
             </header>
-            <p className="blackboard-demo-guide">您只能向管理员发送信息。Chenyu 登录后台回复后，回复内容会显示在这条对话中。</p>
+            <p className="blackboard-demo-guide">Chenyu 在同一设备和浏览器中打开后台后，可以查看并回复这条留言。</p>
             <BlackboardMessages thread={thread} />
             <div className="blackboard-composer">
               <label htmlFor="blackboard-message">写下您的留言</label>
@@ -588,7 +588,7 @@ function BriefPanel(props: {
           <p className="text-sm font-bold text-[#96001e]">自动更新</p>
           <h2 className="mt-1 text-xl font-black">DeepSeek Flash 服务端生成</h2>
           <p className="mt-2 text-sm leading-7 text-[#51484b]">
-            计划于工作日北京时间 08:30、18:30 更新。当前本地 demo 由管理员手动触发；生成失败或格式不合格时保留原简报，不会用错误结果覆盖。
+            每日北京时间 08:30、18:30 由 Vercel 定时任务自动更新，管理员也可在后台手动补抓。生成失败或格式不合格时保留原简报，不会用错误结果覆盖。
           </p>
         </div>
         <div className="ai-status-card">
@@ -822,7 +822,7 @@ function AdminBlackboardDemo() {
       <header>
         <div>
           <p>小黑板留言</p>
-          <h2>访客私信收件箱</h2>
+          <h2>当前设备访客留言</h2>
         </div>
         <span>{threads.length} 位访客</span>
       </header>

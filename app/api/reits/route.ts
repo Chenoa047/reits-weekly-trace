@@ -23,11 +23,13 @@ async function maybeRefresh(date: string) {
   const db = getDb();
   const run = await latestRun(db);
   if (!run?.started_at) {
-    await refreshWeek(db, date);
+    await refreshWeek(db, date, { trigger: 'recovery' });
     return;
   }
   const age = Date.now() - Date.parse(String(run.started_at));
-  if (Number.isFinite(age) && age > 12 * 60 * 60 * 1000) {
-    await refreshWeek(db, date);
+  const failedRetryDue = run.status === 'failed' && age > 15 * 60 * 1000;
+  const scheduledRefreshDue = run.status !== 'failed' && age > 12 * 60 * 60 * 1000;
+  if (Number.isFinite(age) && (failedRetryDue || scheduledRefreshDue)) {
+    await refreshWeek(db, date, { trigger: 'recovery' });
   }
 }
