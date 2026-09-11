@@ -6,6 +6,9 @@ type ReitsFile = {
   label: string;
   url: string;
   kind: string;
+  originalTitle: string;
+  publishedAt?: string;
+  section?: string;
 };
 
 type ReitsRecord = {
@@ -16,6 +19,7 @@ type ReitsRecord = {
   title: string;
   status: string;
   progressType: string;
+  offeringType: '首发' | '扩募';
   updateDate: string;
   weekStart: string;
   weekEnd: string;
@@ -126,6 +130,7 @@ export default function Home() {
         title: '新增项目简报',
         status: '待核验',
         progressType: '待核验',
+        offeringType: '首发' as const,
         updateDate: now,
         weekStart: payload?.range.start || now,
         weekEnd: payload?.range.end || now,
@@ -712,6 +717,7 @@ function ProjectCard(props: {
       <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-[#695f62]">
         <span className={`badge ${record.exchange === '深交所' ? 'szse' : 'sse'}`}>{record.exchange}</span>
         <span>更新时间：{record.updateDate}</span>
+        <span>项目类型：{record.offeringType || '首发'}</span>
         <span>项目状态：{record.status}</span>
       </div>
       {props.localEdit ? (
@@ -729,7 +735,7 @@ function ProjectCard(props: {
       )}
       <div className="mt-4 flex flex-wrap gap-3">
         <button className="btn-muted" onClick={() => props.setCompareRecord(record)}>同屏核对</button>
-        {record.files.length ? record.files.map((file) => <a key={file.url} className="file-link" href={file.url} target="_blank" rel="noreferrer">{file.label}</a>) : <span className="text-sm text-[#695f62]">申报阶段暂无需展示的原文件</span>}
+        {record.files.length ? record.files.map((file) => <a key={file.url} className="file-link" href={file.url} target="_blank" rel="noreferrer" title={file.originalTitle}>{file.label}</a>) : <span className="text-sm text-[#695f62]">申报阶段暂无需展示的原文件</span>}
       </div>
     </article>
   );
@@ -822,7 +828,7 @@ function AdminBlackboardDemo() {
       <header>
         <div>
           <p>小黑板留言</p>
-          <h2>当前设备访客留言</h2>
+          <h2>访客留言管理</h2>
         </div>
         <span>{threads.length} 位访客</span>
       </header>

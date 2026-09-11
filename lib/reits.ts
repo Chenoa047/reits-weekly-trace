@@ -1,11 +1,18 @@
 import type { AppDb } from '@/db';
 import { generateDeepSeekBrief, sourceSignature } from '@/lib/deepseek';
+import { addDocumentExcerpts } from '@/lib/pdf-text';
+import {
+  announcementStage,
+  classifyDocument,
+  documentLabel,
+  inferProjectStage,
+  missingRequiredMaterial,
+  selectStageFiles,
+  type OfferingType,
+  type ReitsSourceFile,
+} from '@/lib/reits-rules';
 
-export type ReitsFile = {
-  label: string;
-  url: string;
-  kind: string;
-};
+export type ReitsFile = ReitsSourceFile;
 
 export type ReitsRecord = {
   id: string;
@@ -15,6 +22,7 @@ export type ReitsRecord = {
   title: string;
   status: string;
   progressType: string;
+  offeringType: OfferingType;
   updateDate: string;
   weekStart: string;
   weekEnd: string;
@@ -31,9 +39,12 @@ type D1 = AppDb;
 
 const SSE_QUERY = 'https://query.sse.com.cn/commonSoaQuery.do';
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
+const SSE_BULLETIN_REFERER = 'https://www.sse.com.cn/reits/announcements/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
+const SSE_ANNOUNCEMENT_BASE = 'https://www.sse.com.cn';
 const SZSE_ORIGINS = ['https://reits.szse.cn', 'https://www.szse.cn'] as const;
 const SZSE_FILE_BASE = 'https://reportdocs.static.szse.cn';
+const SZSE_ANNOUNCEMENT_BASE = 'https://disc.static.szse.cn/download';
 
 export const seedRecords: ReitsRecord[] = [
   {
@@ -44,6 +55,7 @@ export const seedRecords: ReitsRecord[] = [
     title: '华安晶澳科技新能源REIT申报至深交所',
     status: '已申报',
     progressType: '申报',
+    offeringType: '首发',
     updateDate: '2026-09-10',
     weekStart: '2026-09-07',
     weekEnd: '2026-09-10',
@@ -52,7 +64,8 @@ export const seedRecords: ReitsRecord[] = [
       '9月10日，深交所网站显示，华安晶澳科技新能源REIT项目状态为“已申报”，原始权益人为晶澳太阳能投资（中国）有限公司、朝阳龙盛太阳能发电有限公司。',
     note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
-    sourceUrl: 'https://reits.szse.cn/projectdynamic/detail/index.html?id=5000079',
+    sourceUrl:
+      'https://reits.szse.cn/projectdynamic/detail/index.html?id=5000079',
     sourceHtml:
       '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>深交所 REITs 项目动态详情页显示，华安晶澳科技新能源封闭式基础设施证券投资基金<mark>项目状态为“已申报”</mark>，更新时间为<mark>2026-09-10</mark>，原始权益人为<mark>晶澳太阳能投资（中国）有限公司、朝阳龙盛太阳能发电有限公司</mark>。</p>',
   },
@@ -64,6 +77,7 @@ export const seedRecords: ReitsRecord[] = [
     title: '国泰海通上实租赁住房REIT申报至上交所',
     status: '已申报',
     progressType: '申报',
+    offeringType: '首发',
     updateDate: '2026-09-10',
     weekStart: '2026-09-07',
     weekEnd: '2026-09-10',
@@ -72,7 +86,8 @@ export const seedRecords: ReitsRecord[] = [
       '9月10日，上交所网站显示，国泰海通上实租赁住房REIT项目状态为“已申报”，原始权益人为上实城开（上海）房屋租赁有限公司。',
     note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
-    sourceUrl: 'https://www.sse.com.cn/reits/info/index_detail.shtml?audit_id=894cbcc4623047c385444030dd83f921',
+    sourceUrl:
+      'https://www.sse.com.cn/reits/info/index_detail.shtml?audit_id=894cbcc4623047c385444030dd83f921',
     sourceHtml:
       '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>上交所 REITs 项目动态详情页显示，国泰海通上实租赁住房封闭式基础设施证券投资基金<mark>项目状态为“已申报”</mark>，更新时间为<mark>2026-09-10</mark>，原始权益人为<mark>上实城开（上海）房屋租赁有限公司</mark>。</p>',
   },
@@ -84,27 +99,28 @@ export const seedRecords: ReitsRecord[] = [
     title: '嘉实京东仓储物流REIT扩募获上交所反馈意见',
     status: '已反馈',
     progressType: '反馈/问询',
+    offeringType: '扩募',
     updateDate: '2026-09-07',
     weekStart: '2026-09-07',
     weekEnd: '2026-09-09',
     originator: '北京京东耀弘管理咨询有限公司',
     brief:
-      '9月7日，上交所网站显示，嘉实京东仓储物流REIT项目状态更新为“已反馈”。上交所披露的受理反馈意见主要围绕业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理等方面展开，要求管理人进一步补充说明或充分披露。其余还包括扩募条件、共管账户、基金收益水平、信息披露和资产投保情况等其他反馈意见。招募说明书草案显示，本次扩募原始权益人为北京京东耀弘管理咨询有限公司，拟购入资产为京东西北电子商务营业中心（京东二期）项目和京东安徽电子商务产业园二期项目，分别位于陕西省西安市灞桥区和安徽省合肥市长丰县，拟购入不动产资产评估值合计10.34亿元。',
+      '9月7日，上交所网站显示，嘉实京东仓储物流REIT扩募项目状态更新为“已反馈”。上交所披露的受理反馈意见主要围绕业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理等方面展开，要求管理人进一步补充说明或充分披露；其他反馈包括扩募条件、共管账户、基金收益水平、信息披露和资产投保情况。',
     files: [
       {
         label: '受理反馈意见原文',
         kind: '反馈意见',
+        originalTitle:
+          '关于嘉实京东仓储物流封闭式基础设施证券投资基金产品变更暨扩募份额上市申请受理反馈意见',
+        publishedAt: '2026-09-07',
+        section: '反馈意见及回复',
+        issuerRole: '交易所',
         url: 'https://static.sse.com.cn/bond/bridge2/disclosure/announcement/c/202609/2b6853_20260907_X0EZ.pdf',
-      },
-      {
-        label: '招募说明书草案原文',
-        kind: '招募说明书',
-        url: 'https://static.sse.com.cn/bond/bridge2/disclosure/announcement/c/202607/2b6853_20260724_91UB.pdf',
       },
     ],
     sourceUrl: SSE_REFERER,
     sourceHtml:
-      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span><mark>项目状态更新为“已反馈”</mark>。来源：上交所 REITs 项目动态详情页。</p><p><span class="page-ref">反馈意见第1-8页</span>上交所《受理反馈意见》列明的主要问题包括：<mark>业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理</mark>。</p><p><span class="page-ref">反馈意见第9-10页</span>《受理反馈意见》“六、其他反馈问题”包括：<mark>扩募条件、共管账户、基金收益水平、信息披露、资产投保情况</mark>。</p><p><span class="page-ref">招募说明书第4页、第30-31页</span>招募说明书草案显示，<mark>原始权益人为北京京东耀弘管理咨询有限公司</mark>，拟购入项目为<mark>京东西北电子商务营业中心（京东二期）项目、京东安徽电子商务产业园二期项目</mark>，项目所在地分别为<mark>陕西省西安市灞桥区、安徽省合肥市长丰县</mark>。</p><p><span class="page-ref">招募说明书第35页</span>最新发布的受理反馈意见未披露调整后估值，估值数据沿用招募说明书草案“不动产项目资产评估以及现金流预测表”：西安项目估值规模为4.63亿元，合肥项目估值规模为5.71亿元，<mark>拟购入不动产资产评估值合计10.34亿元</mark>。</p>',
+      '<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span><mark>项目状态更新为“已反馈”</mark>。来源：上交所 REITs 项目动态详情页。</p><p><span class="page-ref">反馈意见第1-8页</span>上交所《受理反馈意见》列明的主要问题包括：<mark>业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理</mark>。</p><p><span class="page-ref">反馈意见第9-10页</span>《受理反馈意见》“六、其他反馈问题”包括：<mark>扩募条件、共管账户、基金收益水平、信息披露、资产投保情况</mark>。</p>',
   },
   {
     id: 'szse-huaxia-zhonghai-2026-09-07',
@@ -114,6 +130,7 @@ export const seedRecords: ReitsRecord[] = [
     title: '华夏中海商业不动产REIT申报至深交所',
     status: '已申报',
     progressType: '申报',
+    offeringType: '首发',
     updateDate: '2026-09-07',
     weekStart: '2026-09-07',
     weekEnd: '2026-09-09',
@@ -173,10 +190,13 @@ export function assertAdmin(request: Request) {
   const password = request.headers.get('x-admin-password') || '';
   const expected = process.env.ADMIN_PASSWORD || '';
   if (!expected || password !== expected) {
-    return new Response(JSON.stringify({ message: '管理员密码错误或尚未配置。' }), {
-      status: 401,
-      headers: jsonHeaders(),
-    });
+    return new Response(
+      JSON.stringify({ message: '管理员密码错误或尚未配置。' }),
+      {
+        status: 401,
+        headers: jsonHeaders(),
+      },
+    );
   }
   return null;
 }
@@ -194,7 +214,9 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
     .catch(() => ({ results: [] as Record<string, unknown>[] }));
   return {
     range: { start, end },
-    records: rows.results.length ? rows.results.map(rowToRecord) : seedRecordsForRange(start, end),
+    records: rows.results.length
+      ? rows.results.map(rowToRecord)
+      : seedRecordsForRange(start, end),
   };
 }
 
@@ -277,10 +299,23 @@ export async function refreshWeek(
   const runId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
   const triggerLabel =
-    options.trigger === 'scheduled' ? '定时任务' : options.trigger === 'manual' ? '管理员手动更新' : '访问触发补抓';
+    options.trigger === 'scheduled'
+      ? '定时任务'
+      : options.trigger === 'manual'
+        ? '管理员手动更新'
+        : '访问触发补抓';
   await db
-    .prepare('INSERT INTO fetch_runs (id, started_at, status, week_start, week_end, message) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(runId, startedAt, 'running', start, end, `${triggerLabel}：开始抓取交易所数据。`)
+    .prepare(
+      'INSERT INTO fetch_runs (id, started_at, status, week_start, week_end, message) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .bind(
+      runId,
+      startedAt,
+      'running',
+      start,
+      end,
+      `${triggerLabel}：开始抓取交易所数据。`,
+    )
     .run();
 
   let message = '';
@@ -302,17 +337,34 @@ export async function refreshWeek(
     }
 
     const sseRecords = sseResult.status === 'fulfilled' ? sseResult.value : [];
-    const szseRecords = szseResult.status === 'fulfilled' ? szseResult.value.records : [];
+    const szseRecords =
+      szseResult.status === 'fulfilled' ? szseResult.value.records : [];
     sseCount = sseRecords.length;
     szseCount = szseRecords.length;
     for (const record of [...sseRecords, ...szseRecords]) {
       const existing = await findRecord(db, record.id);
-      const sourceChanged = !existing || sourceSignature(existing) !== sourceSignature(record);
-      const shouldGenerate = Boolean(options.generateBriefs && (options.forceGenerate || sourceChanged));
+      const sourceChanged =
+        !existing || sourceSignature(existing) !== sourceSignature(record);
+      const shouldGenerate = Boolean(
+        options.generateBriefs && (options.forceGenerate || sourceChanged),
+      );
       if (shouldGenerate) {
         try {
-          const generated = await generateDeepSeekBrief(record);
+          const missing = missingRequiredMaterial(
+            record.progressType,
+            record.files,
+          );
+          if (missing.length)
+            throw new Error(`缺少规定原文件：${missing.join('、')}`);
+          const generationRecord = {
+            ...record,
+            files: record.files.length
+              ? await addDocumentExcerpts(record.progressType, record.files)
+              : [],
+          };
+          const generated = await generateDeepSeekBrief(generationRecord);
           record.brief = generated.brief;
+          record.note = undefined;
           generatedCount += 1;
           inputTokens += generated.inputTokens;
           outputTokens += generated.outputTokens;
@@ -321,6 +373,10 @@ export async function refreshWeek(
           if (existing) {
             record.brief = existing.brief;
             record.note = existing.note;
+          } else if (record.progressType !== '申报') {
+            record.brief =
+              '本条简报暂未发布：规定原文件尚未成功读取，系统将在下次自动更新时重试。';
+            record.note = '未使用缺失或无法读取的材料生成内容。';
           }
         }
       } else if (options.generateBriefs) {
@@ -336,7 +392,9 @@ export async function refreshWeek(
       ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
     const sseMessage =
-      sseResult.status === 'fulfilled' ? `上交所抓取 ${sseCount} 条` : '上交所抓取失败，本次保留已有数据';
+      sseResult.status === 'fulfilled'
+        ? `上交所抓取 ${sseCount} 条`
+        : '上交所抓取失败，本次保留已有数据';
     const szseMessage =
       szseResult.status === 'fulfilled'
         ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
@@ -355,7 +413,14 @@ export async function refreshWeek(
       .prepare(
         'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
       )
-      .bind(new Date().toISOString(), 'failed', sseCount, szseCount, message, runId)
+      .bind(
+        new Date().toISOString(),
+        'failed',
+        sseCount,
+        szseCount,
+        message,
+        runId,
+      )
       .run();
   }
   return {
@@ -392,17 +457,56 @@ export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     )
-    .bind(id, range.start, range.end, new Date().toISOString(), JSON.stringify(records))
+    .bind(
+      id,
+      range.start,
+      range.end,
+      new Date().toISOString(),
+      JSON.stringify(records),
+    )
     .run();
-  await db.prepare('UPDATE projects SET is_archived = 1 WHERE week_start = ?').bind(range.start).run();
+  await db
+    .prepare('UPDATE projects SET is_archived = 1 WHERE week_start = ?')
+    .bind(range.start)
+    .run();
   return { id, count: records.length };
 }
 
-async function fetchSseRecords(start: string, end: string): Promise<ReitsRecord[]> {
+async function fetchSseRecords(
+  start: string,
+  end: string,
+): Promise<ReitsRecord[]> {
   const url = `${SSE_QUERY}?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1`;
-  const data = await withRetry(() => fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER));
-  const projects = (data.result || []).filter((item) => item.PUBLISH_DATE >= start && item.PUBLISH_DATE <= end);
-  return Promise.all(projects.map((project) => mapSseProject(project, start, end)));
+  const [data, bulletins] = await Promise.all([
+    withRetry(() => fetchJson<{ result?: SseProject[] }>(url, SSE_REFERER)),
+    fetchSseBulletins(start, end).catch(() => []),
+  ]);
+  const projects = (data.result || []).filter(
+    (item) => item.PUBLISH_DATE >= start && item.PUBLISH_DATE <= end,
+  );
+  const projectRecords = await Promise.all(
+    projects.map((project) => mapSseProject(project, start, end)),
+  );
+  const histories = new Map<string, Promise<SseBulletin[]>>();
+  const announcementRecords = await Promise.all(
+    bulletins
+      .filter((item) => announcementStage(item.title))
+      .map((item) => {
+        if (!histories.has(item.securityCode)) {
+          histories.set(
+            item.securityCode,
+            fetchSseBulletins('2021-01-01', end, item.securityCode),
+          );
+        }
+        return mapSseBulletin(
+          item,
+          histories.get(item.securityCode)!,
+          start,
+          end,
+        );
+      }),
+  );
+  return [...projectRecords, ...announcementRecords];
 }
 
 async function withRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
@@ -413,7 +517,9 @@ async function withRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (error) {
       lastError = error;
       if (attempt < attempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, 500 * (attempt + 1)),
+        );
       }
     }
   }
@@ -421,19 +527,49 @@ async function withRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
 }
 
 async function fetchSzseRecords(start: string, end: string) {
-  const listResults = await Promise.allSettled(([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)));
+  const listResults = await Promise.allSettled(
+    ([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)),
+  );
   const succeeded = listResults.filter(
-    (result): result is PromiseFulfilledResult<SzseProject[]> => result.status === 'fulfilled',
+    (result): result is PromiseFulfilledResult<SzseProjectWithOffering[]> =>
+      result.status === 'fulfilled',
   );
   if (!succeeded.length) {
-    throw new Error(listResults.map((result) => describeFetchError(result.status === 'rejected' && result.reason)).join('；'));
+    throw new Error(
+      listResults
+        .map((result) =>
+          describeFetchError(result.status === 'rejected' && result.reason),
+        )
+        .join('；'),
+    );
   }
-  const projects = succeeded.flatMap((result) => result.value).filter((item) => item.updtdt >= start && item.updtdt <= end);
-  const records = await Promise.all(projects.map((project) => mapSzseProject(project, start, end)));
+  const allProjects = succeeded.flatMap((result) => result.value);
+  const projects = allProjects.filter(
+    ({ project }) => project.updtdt >= start && project.updtdt <= end,
+  );
+  const projectRecords = await Promise.all(
+    projects.map(({ project, offeringType }) =>
+      mapSzseProject(project, offeringType, start, end),
+    ),
+  );
+  const announcementRecords = await fetchSzseAnnouncementRecords(
+    allProjects,
+    start,
+    end,
+  );
   const failedKinds = listResults
-    .map((result, index) => (result.status === 'rejected' ? (index === 0 ? '首发列表失败' : '新购入项目列表失败') : ''))
+    .map((result, index) =>
+      result.status === 'rejected'
+        ? index === 0
+          ? '首发列表失败'
+          : '新购入项目列表失败'
+        : '',
+    )
     .filter(Boolean);
-  return { records, warning: failedKinds.join('、') };
+  return {
+    records: [...projectRecords, ...announcementRecords],
+    warning: failedKinds.join('、'),
+  };
 }
 
 async function fetchSzseProjectList(biztypsb: 21 | 23) {
@@ -443,12 +579,20 @@ async function fetchSzseProjectList(biztypsb: 21 | 23) {
     pageSize: '200',
     bizType: '2',
   });
-  const data = await fetchSzseJson<{ data?: SzseProject[] }>(`/api/reits/projectrends/query?${query}`);
+  const data = await fetchSzseJson<{ data?: SzseProject[] }>(
+    `/api/reits/projectrends/query?${query}`,
+  );
   if (!Array.isArray(data.data)) throw new Error('返回格式异常');
-  return data.data || [];
+  const offeringType: OfferingType = biztypsb === 23 ? '扩募' : '首发';
+  return (data.data || []).map((project) => ({ project, offeringType }));
 }
 
-async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
+async function mapSzseProject(
+  project: SzseProject,
+  offeringType: OfferingType,
+  weekStart: string,
+  weekEnd: string,
+): Promise<ReitsRecord> {
   const detailUrl = `https://reits.szse.cn/projectdynamic/detail/index.html?id=${project.prjid}`;
   const detailResponse = await fetchSzseJson<{ data?: SzseProjectDetail }>(
     `/api/reits/projectrends/details?id=${project.prjid}`,
@@ -456,66 +600,102 @@ async function mapSzseProject(project: SzseProject, weekStart: string, weekEnd: 
   const detail = detailResponse.data;
   const files = detail ? szseFiles(detail) : [];
   const status = clean(project.prjst);
-  const progressType = inferProgress(status, files);
+  const progressType = inferProjectStage(status, files);
   const shortName = briefName(project.cmpnm);
   const originator = clean(project.primitiveInterestsor);
-  const fileText = files.length ? `。项目详情页同步披露${files.map((file) => `《${file.label}》`).join('、')}` : '';
+  const fileText = files.length
+    ? `。项目详情页同步披露${files.map((file) => `《${file.label}》`).join('、')}`
+    : '';
   return {
     id: `szse-${project.prjid}-${project.updtdt}`,
     exchange: '深交所',
     fullName: project.cmpnm,
     shortName,
-    title: titleFor(shortName, progressType, '深交所'),
+    title: titleFor(shortName, progressType, '深交所', offeringType),
     status,
     progressType,
+    offeringType,
     updateDate: project.updtdt,
     weekStart,
     weekEnd,
     originator,
     brief: `${displayDate(project.updtdt)}，深交所网站显示，${shortName}项目状态为“${status}”，项目原始权益人为${originator}${fileText}。`,
-    files,
+    files: selectStageFiles(progressType, files),
     sourceUrl: detailUrl,
     sourceHtml: buildSzseSourceHtml(project, status, files),
   };
 }
 
 function szseFiles(detail: SzseProjectDetail): ReitsFile[] {
-  const groups = [
-    detail.disclosureMaterials,
-    detail.enquiryResponseAttachment,
-    detail.meetingConclusionAttachment,
-    detail.terminationNoticeAttachment,
-    detail.registrationResultAttachment,
-    detail.cashReorganizationResultAttachment,
+  const groups: Array<[string, SzseFile[] | undefined]> = [
+    ['项目申报材料', detail.disclosureMaterials],
+    ['问询与回复', detail.enquiryResponseAttachment],
+    ['会议结论', detail.meetingConclusionAttachment],
+    ['终止审核通知', detail.terminationNoticeAttachment],
+    ['注册结果', detail.registrationResultAttachment],
+    ['现金重组结果', detail.cashReorganizationResultAttachment],
   ];
   const seen = new Set<string>();
   return groups
-    .flatMap((group) => group || [])
-    .filter((file) => Boolean(file.dfpth) && !seen.has(file.dfpth) && seen.add(file.dfpth))
-    .map((file) => {
-      const title = file.dfnm || file.configFileName || file.matnm || '项目披露文件';
+    .flatMap(([section, group]) =>
+      (group || []).map((file) => ({ file, section })),
+    )
+    .filter(
+      ({ file }) =>
+        Boolean(file.dfpth) && !seen.has(file.dfpth) && seen.add(file.dfpth),
+    )
+    .map(({ file, section }) => {
+      const title =
+        file.dfnm || file.configFileName || file.matnm || '项目披露文件';
+      const kind = classifyDocument(title);
       return {
-        label: labelForFile(title),
-        kind: kindForFile(title),
+        label: documentLabel(kind),
+        kind,
+        originalTitle: title,
+        publishedAt: file.dfdt || file.publishTime?.slice(0, 10),
+        section,
+        issuerRole:
+          kind === '回复反馈'
+            ? '原始权益人'
+            : kind === '问询函'
+              ? '交易所'
+              : '披露主体',
         url: `${SZSE_FILE_BASE}${file.dfpth}`,
       };
     });
 }
 
-function buildSzseSourceHtml(project: SzseProject, status: string, files: ReitsFile[]) {
-  const fileList = files.map((file) => `<mark>${escapeHtml(file.label)}</mark>`).join('、');
-  const filesHtml = fileList ? `<p><span class="page-ref">附件列表</span>${fileList}</p>` : '';
+function buildSzseSourceHtml(
+  project: SzseProject,
+  status: string,
+  files: ReitsFile[],
+) {
+  const fileList = files
+    .map((file) => `<mark>${escapeHtml(file.label)}</mark>`)
+    .join('、');
+  const filesHtml = fileList
+    ? `<p><span class="page-ref">附件列表</span>${fileList}</p>`
+    : '';
   return `<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.cmpnm)}<mark>项目状态为“${escapeHtml(status)}”</mark>，更新时间为<mark>${escapeHtml(project.updtdt)}</mark>，项目原始权益人为<mark>${escapeHtml(clean(project.primitiveInterestsor))}</mark>。</p>${filesHtml}`;
 }
 
-async function mapSseProject(project: SseProject, weekStart: string, weekEnd: string): Promise<ReitsRecord> {
+async function mapSseProject(
+  project: SseProject,
+  weekStart: string,
+  weekEnd: string,
+): Promise<ReitsRecord> {
   const files = await fetchSseFiles(project.BOND_NUM).catch(() => []);
   const status = sseStatus(project);
-  const progressType = inferProgress(status, files);
+  const progressType = inferProjectStage(status, files);
+  const offeringType: OfferingType =
+    project.REITS_TYPE === '1' ? '扩募' : '首发';
   const shortName = briefName(project.AUDIT_NAME);
-  const title = titleFor(shortName, progressType, '上交所');
-  const feedbackFiles = files.filter((file) => file.kind !== '招募说明书');
-  const prospectus = files.find((file) => file.kind === '招募说明书');
+  const title = titleFor(shortName, progressType, '上交所', offeringType);
+  const selectedFiles = selectStageFiles(progressType, files);
+  const feedbackFiles = selectedFiles.filter(
+    (file) => file.kind !== '招募说明书',
+  );
+  const prospectus = selectedFiles.find((file) => file.kind === '招募说明书');
   return {
     id: `sse-${project.BOND_NUM}-${project.PUBLISH_DATE}`,
     exchange: '上交所',
@@ -524,12 +704,13 @@ async function mapSseProject(project: SseProject, weekStart: string, weekEnd: st
     title,
     status,
     progressType,
+    offeringType,
     updateDate: project.PUBLISH_DATE,
     weekStart,
     weekEnd,
     originator: clean(project.FULL_NAME),
     brief: buildSseBrief(project, progressType, feedbackFiles, prospectus),
-    files,
+    files: selectedFiles,
     sourceUrl: `${SSE_REFERER}index_detail.shtml?audit_id=${project.BOND_NUM}`,
     sourceHtml: buildSseSourceHtml(project, status, feedbackFiles, prospectus),
   };
@@ -538,11 +719,227 @@ async function mapSseProject(project: SseProject, weekStart: string, weekEnd: st
 async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
   const url = `${SSE_QUERY}?isPagination=false&audit_id=${encodeURIComponent(auditId)}&sqlId=ZQ_GGJG`;
   const data = await fetchJson<{ result?: SseFile[] }>(url, SSE_REFERER);
-  return (data.result || []).map((file) => ({
-    label: labelForFile(file.FILE_TITLE),
-    kind: kindForFile(file.FILE_TITLE),
-    url: `${SSE_FILE_BASE}${file.FILE_PATH}`,
-  }));
+  return (data.result || []).map((file) => {
+    const kind = classifyDocument(file.FILE_TITLE);
+    return {
+      label: documentLabel(kind),
+      kind,
+      originalTitle: file.FILE_TITLE,
+      publishedAt: file.FILE_TIME,
+      section:
+        kind === '反馈意见' || kind === '回复反馈'
+          ? '反馈意见及回复'
+          : '项目申报材料',
+      issuerRole:
+        kind === '回复反馈'
+          ? '原始权益人'
+          : kind === '反馈意见'
+            ? '交易所'
+            : '披露主体',
+      url: `${SSE_FILE_BASE}${file.FILE_PATH}`,
+    };
+  });
+}
+
+async function fetchSseBulletins(start: string, end: string, fundCode = '') {
+  const query = new URLSearchParams({
+    sqlId: 'REITS_BULLETIN',
+    isPagination: 'true',
+    fundCode,
+    startDate: start,
+    endDate: end,
+    'pageHelp.pageSize': '200',
+    'pageHelp.pageNo': '1',
+  });
+  const data = await withRetry(() =>
+    fetchJson<{ result?: SseBulletin[] }>(
+      `${SSE_QUERY}?${query}`,
+      SSE_BULLETIN_REFERER,
+    ),
+  );
+  return data.result || [];
+}
+
+async function mapSseBulletin(
+  bulletin: SseBulletin,
+  historyPromise: Promise<SseBulletin[]>,
+  weekStart: string,
+  weekEnd: string,
+): Promise<ReitsRecord> {
+  const progressType = announcementStage(bulletin.title)!;
+  const history = await historyPromise.catch(() => [bulletin]);
+  const allFiles = history.map(sseBulletinFile);
+  const files = selectStageFiles(progressType, allFiles);
+  const offeringType: OfferingType = history.some((item) =>
+    /扩募|新购入不动产/.test(item.title),
+  )
+    ? '扩募'
+    : '首发';
+  const shortName = clean(
+    bulletin.fundExtAbbr ||
+      bulletin.fundAbbr ||
+      extractFundName(bulletin.title),
+  );
+  return {
+    id: `sse-announcement-${bulletin.url.split('/').at(-1)?.replace(/\W/g, '-') || crypto.randomUUID()}`,
+    exchange: '上交所',
+    fullName: extractFundName(bulletin.title),
+    shortName,
+    title: titleFor(shortName, progressType, '上交所', offeringType),
+    status: progressType,
+    progressType,
+    offeringType,
+    updateDate: bulletin.sseDate,
+    weekStart,
+    weekEnd,
+    brief: `${displayDate(bulletin.sseDate)}，${shortName}在上交所披露《${bulletin.title}》。`,
+    files,
+    sourceUrl: SSE_BULLETIN_REFERER,
+    sourceHtml: buildAnnouncementSourceHtml(
+      '上交所',
+      bulletin.title,
+      bulletin.sseDate,
+      files,
+    ),
+  };
+}
+
+function sseBulletinFile(item: SseBulletin): ReitsFile {
+  const kind = classifyDocument(item.title);
+  return {
+    label: documentLabel(kind),
+    kind,
+    originalTitle: item.title,
+    publishedAt: item.sseDate,
+    section: '信息披露 / REITs公告',
+    issuerRole: '披露主体',
+    url: `${SSE_ANNOUNCEMENT_BASE}${item.url}`,
+  };
+}
+
+async function fetchSzseAnnouncementRecords(
+  projects: SzseProjectWithOffering[],
+  weekStart: string,
+  weekEnd: string,
+) {
+  const query = new URLSearchParams({
+    type: '4',
+    pageSize: '100',
+    pageNum: '1',
+  });
+  const data = await fetchJson<{ data?: SzseAnnouncement[] }>(
+    `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
+    'https://www.szse.cn/www/reits/disclosure/index.html',
+  ).catch(() => ({ data: [] }));
+  const announcements = (data.data || []).filter((item) => {
+    const date = item.publishTime.slice(0, 10);
+    return (
+      date >= weekStart &&
+      date <= weekEnd &&
+      Boolean(announcementStage(item.title))
+    );
+  });
+  return Promise.all(
+    announcements.map((item) =>
+      mapSzseAnnouncement(item, projects, weekStart, weekEnd),
+    ),
+  );
+}
+
+async function mapSzseAnnouncement(
+  announcement: SzseAnnouncement,
+  projects: SzseProjectWithOffering[],
+  weekStart: string,
+  weekEnd: string,
+): Promise<ReitsRecord> {
+  const progressType = announcementStage(announcement.title)!;
+  const matched = projects.find(({ project }) =>
+    announcement.title.includes(project.cmpnm),
+  );
+  const detail = matched
+    ? await fetchSzseJson<{ data?: SzseProjectDetail }>(
+        `/api/reits/projectrends/details?id=${matched.project.prjid}`,
+      ).catch(() => ({ data: undefined }))
+    : { data: undefined };
+  const primary = szseAnnouncementFile(announcement);
+  const files = selectStageFiles(progressType, [
+    primary,
+    ...(detail.data ? szseFiles(detail.data) : []),
+  ]);
+  const offeringType: OfferingType =
+    matched?.offeringType ||
+    (/扩募|新购入不动产/.test(announcement.title) ? '扩募' : '首发');
+  const shortName = clean(
+    announcement.secName || briefName(extractFundName(announcement.title)),
+  );
+  const updateDate = announcement.publishTime.slice(0, 10);
+  return {
+    id: `szse-announcement-${announcement.id}`,
+    exchange: '深交所',
+    fullName: matched?.project.cmpnm || extractFundName(announcement.title),
+    shortName,
+    title: titleFor(shortName, progressType, '深交所', offeringType),
+    status: progressType,
+    progressType,
+    offeringType,
+    updateDate,
+    weekStart,
+    weekEnd,
+    originator: matched
+      ? clean(matched.project.primitiveInterestsor)
+      : undefined,
+    brief: `${displayDate(updateDate)}，${shortName}在深交所披露《${announcement.title}》。`,
+    files,
+    sourceUrl: 'https://reits.szse.cn/disclosure/',
+    sourceHtml: buildAnnouncementSourceHtml(
+      '深交所',
+      announcement.title,
+      updateDate,
+      files,
+    ),
+  };
+}
+
+function szseAnnouncementFile(item: SzseAnnouncement): ReitsFile {
+  const kind = classifyDocument(item.title);
+  return {
+    label: documentLabel(kind),
+    kind,
+    originalTitle: item.title,
+    publishedAt: item.publishTime.slice(0, 10),
+    section: '信息披露',
+    issuerRole: '披露主体',
+    url: `${SZSE_ANNOUNCEMENT_BASE}${item.attachPath}`,
+  };
+}
+
+function buildAnnouncementSourceHtml(
+  exchange: string,
+  title: string,
+  date: string,
+  files: ReitsFile[],
+) {
+  const fileList = files
+    .map((file) => `<mark>${escapeHtml(file.originalTitle)}</mark>`)
+    .join('、');
+  return `<h3>内容溯源</h3><p><span class="page-ref">信息披露</span>${exchange}于<mark>${date}</mark>披露<mark>${escapeHtml(title)}</mark>。</p><p><span class="page-ref">本条实际参考文件</span>${fileList}</p>`;
+}
+
+function extractFundName(title: string) {
+  const withoutPrefix = title.includes('：')
+    ? title.split('：').slice(1).join('：')
+    : title;
+  return (
+    withoutPrefix.match(
+      /[\u4e00-\u9fffA-Za-z0-9（）()·-]+封闭式(?:基础设施|商业不动产)证券投资基金/,
+    )?.[0] ||
+    withoutPrefix
+      .replace(
+        /(?:基金份额)?(?:询价|发售|上市交易提示性|认购申请确认比例结果).*$/,
+        '',
+      )
+      .trim()
+  );
 }
 
 async function fetchJson<T>(url: string, referer: string): Promise<T> {
@@ -570,7 +967,9 @@ async function fetchSzseJson<T>(path: string): Promise<T> {
       try {
         return await fetchJson<T>(`${origin}${path}`, referer);
       } catch (error) {
-        failures.push(`${origin.includes('www.') ? '官网' : 'REITs站'}${describeFetchError(error)}`);
+        failures.push(
+          `${origin.includes('www.') ? '官网' : 'REITs站'}${describeFetchError(error)}`,
+        );
       }
     }
   }
@@ -583,16 +982,24 @@ function describeFetchError(error: unknown) {
   if (status) return `HTTP ${status}`;
   if (/timeout|timed out|aborted/i.test(message)) return '连接超时';
   if (/json|unexpected token|返回格式/i.test(message)) return '返回格式异常';
-  if (/fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(message)) return '网络连接失败';
+  if (/fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(message))
+    return '网络连接失败';
   return message.slice(0, 80) || '未知网络错误';
 }
 
-function buildSseBrief(project: SseProject, progressType: string, feedbackFiles: ReitsFile[], prospectus?: ReitsFile) {
+function buildSseBrief(
+  project: SseProject,
+  progressType: string,
+  feedbackFiles: ReitsFile[],
+  prospectus?: ReitsFile,
+) {
   const date = displayDate(project.PUBLISH_DATE);
   const shortName = briefName(project.AUDIT_NAME);
   const originator = clean(project.FULL_NAME);
   if (progressType === '反馈/问询') {
-    const fileText = feedbackFiles.length ? `，并披露${feedbackFiles.map((file) => `《${file.label}》`).join('、')}` : '';
+    const fileText = feedbackFiles.length
+      ? `，并披露${feedbackFiles.map((file) => `《${file.label}》`).join('、')}`
+      : '';
     return `${date}，上交所网站显示，${shortName}项目状态更新为“${sseStatus(project)}”${fileText}，项目原始权益人为${originator}。`;
   }
   if (progressType === '受理') {
@@ -601,11 +1008,18 @@ function buildSseBrief(project: SseProject, progressType: string, feedbackFiles:
   return `${date}，上交所网站显示，${shortName}项目状态为“${sseStatus(project)}”，项目原始权益人为${originator}。`;
 }
 
-function buildSseSourceHtml(project: SseProject, status: string, files: ReitsFile[], prospectus?: ReitsFile) {
+function buildSseSourceHtml(
+  project: SseProject,
+  status: string,
+  files: ReitsFile[],
+  prospectus?: ReitsFile,
+) {
   const fileList = [...files, ...(prospectus ? [prospectus] : [])]
     .map((file) => `<mark>${escapeHtml(file.label)}</mark>`)
     .join('、');
-  const filesHtml = fileList ? `<p><span class="page-ref">附件列表</span>${fileList}</p>` : '';
+  const filesHtml = fileList
+    ? `<p><span class="page-ref">附件列表</span>${fileList}</p>`
+    : '';
   return `<h3>内容溯源</h3><p><span class="page-ref">项目动态页</span>${escapeHtml(project.AUDIT_NAME)}<mark>项目状态为“${status}”</mark>，更新时间为<mark>${project.PUBLISH_DATE}</mark>，项目原始权益人为<mark>${escapeHtml(clean(project.FULL_NAME))}</mark>。</p>${filesHtml}`;
 }
 
@@ -618,6 +1032,7 @@ function rowToRecord(row: Record<string, unknown>): ReitsRecord {
     title: String(row.title),
     status: String(row.status),
     progressType: String(row.progress_type),
+    offeringType: rawRecord(row).offeringType === '扩募' ? '扩募' : '首发',
     updateDate: String(row.update_date),
     weekStart: String(row.week_start),
     weekEnd: String(row.week_end),
@@ -631,60 +1046,40 @@ function rowToRecord(row: Record<string, unknown>): ReitsRecord {
   };
 }
 
+function rawRecord(row: Record<string, unknown>): Partial<ReitsRecord> {
+  try {
+    return JSON.parse(String(row.raw_json || '{}')) as Partial<ReitsRecord>;
+  } catch {
+    return {};
+  }
+}
+
 function seedRecordsForRange(start: string, end: string) {
   return seedRecords
     .filter((record) => record.updateDate >= start && record.updateDate <= end)
     .map((record) => ({ ...record, weekStart: start, weekEnd: end }));
 }
 
-function inferProgress(status: string, files: ReitsFile[]) {
-  const hasReply = files.some((file) => /回复|答复/.test(file.label));
-  if (files.some((file) => /上市交易/.test(file.label))) return '上市';
-  if (files.some((file) => /认购申请确认比例|认购结果/.test(file.label))) return '认购结果';
-  if (files.some((file) => /份额发售公告/.test(file.label))) return '发售';
-  if (files.some((file) => /询价公告/.test(file.label))) return '询价';
-  if (status === '已反馈') return hasReply ? '回复反馈' : '反馈/问询';
-  if (status === '已问询') return hasReply ? '回复反馈' : '反馈/问询';
-  if (status === '已回复交易所意见') return '回复反馈';
-  if (status === '已受理') return '受理';
-  if (status === '已申报') return '申报';
-  if (status === '注册生效') return '注册生效';
-  return status;
-}
-
-function titleFor(shortName: string, progressType: string, exchange: string) {
-  if (progressType === '反馈/问询') return exchange === '深交所' ? `${shortName}获深交所问询` : `${shortName}获上交所反馈意见`;
-  if (progressType === '回复反馈') return `${shortName}回复反馈`;
-  if (progressType === '受理') return `${shortName}获受理`;
-  if (progressType === '申报') return `${shortName}申报至${exchange}`;
-  if (progressType === '注册生效') return `${shortName}获批`;
-  if (progressType === '询价') return `${shortName}发布询价公告`;
-  if (progressType === '发售') return `${shortName}发布基金份额发售公告`;
-  if (progressType === '认购结果') return `${shortName}披露认购申请确认比例`;
-  if (progressType === '上市') return `${shortName}正式上市`;
-  return `${shortName}${progressType}`;
-}
-
-function labelForFile(title: string) {
-  if (/招募说明书/.test(title)) return '招募说明书草案原文';
-  if (/反馈意见/.test(title)) return /答复|回复/.test(title) ? '反馈回复原文' : '受理反馈意见原文';
-  if (/问询函/.test(title)) return /答复|回复/.test(title) ? '问询回复原文' : '审核问询函原文';
-  if (/认购申请确认比例|认购结果/.test(title)) return '认购申请确认比例公告原文';
-  if (/份额发售公告/.test(title)) return '基金份额发售公告原文';
-  if (/询价公告/.test(title)) return '基金份额询价公告原文';
-  if (/上市交易/.test(title)) return '上市交易提示性公告原文';
-  return title;
-}
-
-function kindForFile(title: string) {
-  if (/招募说明书/.test(title)) return '招募说明书';
-  if (/反馈意见/.test(title)) return /答复|回复/.test(title) ? '回复反馈' : '反馈意见';
-  if (/问询函/.test(title)) return /答复|回复/.test(title) ? '回复反馈' : '问询函';
-  if (/认购申请确认比例|认购结果/.test(title)) return '认购结果';
-  if (/份额发售公告/.test(title)) return '发售';
-  if (/询价公告/.test(title)) return '询价';
-  if (/上市交易/.test(title)) return '上市';
-  return '原文件';
+function titleFor(
+  shortName: string,
+  progressType: string,
+  exchange: string,
+  offeringType: OfferingType,
+) {
+  const actionName = offeringType === '扩募' ? `${shortName}扩募` : shortName;
+  if (progressType === '反馈/问询')
+    return exchange === '深交所'
+      ? `${actionName}获深交所问询`
+      : `${actionName}获上交所反馈意见`;
+  if (progressType === '回复反馈') return `${actionName}回复反馈`;
+  if (progressType === '受理') return `${actionName}获受理`;
+  if (progressType === '申报') return `${actionName}申报至${exchange}`;
+  if (progressType === '注册生效') return `${actionName}获批`;
+  if (progressType === '询价') return `${actionName}发布询价公告`;
+  if (progressType === '发售') return `${actionName}发布基金份额发售公告`;
+  if (progressType === '认购结果') return `${actionName}披露认购申请确认比例`;
+  if (progressType === '上市') return `${actionName}正式上市`;
+  return `${actionName}${progressType}`;
 }
 
 function sseStatus(project: SseProject) {
@@ -741,11 +1136,22 @@ type SseProject = {
   BOND_NUM: string;
   FULL_NAME: string;
   PUBLISH_DATE: string;
+  REITS_TYPE?: string;
 };
 
 type SseFile = {
   FILE_TITLE: string;
   FILE_PATH: string;
+  FILE_TIME?: string;
+};
+
+type SseBulletin = {
+  fundAbbr?: string;
+  fundExtAbbr?: string;
+  securityCode: string;
+  sseDate: string;
+  title: string;
+  url: string;
 };
 
 type SzseProject = {
@@ -761,6 +1167,22 @@ type SzseFile = {
   configFileName?: string;
   matnm?: string;
   dfpth: string;
+  dfdt?: string;
+  publishTime?: string;
+};
+
+type SzseProjectWithOffering = {
+  project: SzseProject;
+  offeringType: OfferingType;
+};
+
+type SzseAnnouncement = {
+  id: string;
+  title: string;
+  publishTime: string;
+  attachPath: string;
+  secCode: string;
+  secName: string;
 };
 
 type SzseProjectDetail = {

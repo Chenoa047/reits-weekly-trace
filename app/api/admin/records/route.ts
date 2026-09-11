@@ -39,6 +39,7 @@ function normalizeRecord(record: ReitsRecord): ReitsRecord {
     title: record.title || `${record.shortName}项目动态`,
     status: record.status || record.progressType || '待核验',
     progressType: record.progressType || record.status || '待核验',
+    offeringType: record.offeringType === '扩募' ? '扩募' : '首发',
     updateDate: record.updateDate || now,
     weekStart: record.weekStart || now,
     weekEnd: record.weekEnd || now,
