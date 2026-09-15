@@ -1,7 +1,5 @@
 # REITs 行业周报工作台
 
-🌐 **在线体验：[reits-weekly-trace.vercel.app](https://reits-weekly-trace.vercel.app/)**
-
 一个面向中国公募 REITs 市场的智能周报工作台，自动追踪上交所、深交所 REITs 项目动态，识别一级市场申报、问询、反馈等关键进展，并借助 AI 生成清晰、可核验的简报内容。
 
 ## 主要功能
@@ -10,11 +8,14 @@
 - 服务端调用 DeepSeek 生成项目简报
 - 支持后台手动更新、内容编辑与每周归档
 - 支持简报速览、原文核验与 Word 文档导出
-- 支持 Vercel 定时任务自动更新
+- CNB 每天北京时间 09:00 自动更新
+- 管理员可从后台即时发起异步抓取并跟踪状态
 
 ## 技术栈
 
-Next.js · Vercel · Turso · DeepSeek
+Next.js · CNB · EdgeOne · Turso · DeepSeek
+
+部署和数据库升级步骤见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
 ## 交流与反馈
 

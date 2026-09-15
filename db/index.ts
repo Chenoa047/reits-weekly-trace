@@ -13,7 +13,7 @@ export function getDb(): AppDb {
   return createDbAdapter(client);
 }
 
-function createDbAdapter(db: Client) {
+export function createDbAdapter(db: Client) {
   return {
     prepare(sql: string) {
       let args: InValue[] = [];

@@ -28,11 +28,20 @@ export const fetchRuns = sqliteTable('fetch_runs', {
   startedAt: text('started_at').notNull(),
   finishedAt: text('finished_at'),
   status: text('status').notNull(),
+  trigger: text('trigger').notNull().default('legacy'),
+  cnbBuildId: text('cnb_build_id'),
   weekStart: text('week_start').notNull(),
   weekEnd: text('week_end').notNull(),
   sseCount: integer('sse_count').notNull().default(0),
   szseCount: integer('szse_count').notNull().default(0),
   message: text('message'),
+});
+
+export const refreshLocks = sqliteTable('refresh_locks', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  acquiredAt: text('acquired_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
 });
 
 export const weeklyArchives = sqliteTable('weekly_archives', {

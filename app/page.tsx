@@ -34,7 +34,18 @@ type ReitsRecord = {
 type ApiPayload = {
   range: { start: string; end: string };
   records: ReitsRecord[];
-  latestRun?: { status?: string; started_at?: string; message?: string; sse_count?: number; szse_count?: number } | null;
+  latestRun?: RefreshRun | null;
+};
+
+type RefreshRun = {
+  id: string;
+  status: 'queued' | 'running' | 'ok' | 'partial' | 'failed';
+  trigger?: 'scheduled' | 'manual' | 'legacy';
+  started_at?: string;
+  finished_at?: string | null;
+  message?: string;
+  sse_count?: number;
+  szse_count?: number;
 };
 
 type VisitorArchive = {
@@ -80,16 +91,57 @@ export default function Home() {
   const [visitorArchives, setVisitorArchives] = useState<VisitorArchive[]>([]);
   const [adminPassword, setAdminPassword] = useState('');
   const [adminAuthed, setAdminAuthed] = useState(false);
+  const [activeRefreshId, setActiveRefreshId] = useState('');
+  const [refreshRun, setRefreshRun] = useState<RefreshRun | null>(null);
 
   useEffect(() => {
-    loadData();
+    void loadData();
     const saved = sessionStorage.getItem('reits-admin-password');
     if (saved) {
       setAdminPassword(saved);
       setAdminAuthed(true);
+      void resumeAdminRefresh(saved);
     }
     setVisitorArchives(readVisitorArchives());
   }, []);
+
+  useEffect(() => {
+    if (!adminAuthed || !activeRefreshId) return;
+    let cancelled = false;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch(`/api/admin/refresh?runId=${encodeURIComponent(activeRefreshId)}`, {
+          headers: adminHeaders(),
+          cache: 'no-store',
+        });
+        const data = (await response.json().catch(() => ({}))) as { run?: RefreshRun; message?: string };
+        if (cancelled) return;
+        if (!response.ok || !data.run) {
+          setMessage(data.message || '抓取任务状态读取失败。');
+          return;
+        }
+        setRefreshRun(data.run);
+        setMessage(data.run.message || '抓取任务正在运行。');
+        if (['ok', 'partial', 'failed'].includes(data.run.status)) {
+          setActiveRefreshId('');
+          if (data.run.status !== 'failed') await loadData();
+        }
+      } catch {
+        if (!cancelled) setMessage('抓取任务状态暂时无法读取，系统将继续重试。');
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeRefreshId, adminAuthed]);
 
   async function loadData() {
     setLoading(true);
@@ -193,6 +245,7 @@ export default function Home() {
     sessionStorage.setItem('reits-admin-password', adminPassword);
     setAdminAuthed(true);
     setMessage('已进入后台管理模式。');
+    await resumeAdminRefresh(adminPassword);
   }
 
   async function adminSave(record: ReitsRecord) {
@@ -215,11 +268,26 @@ export default function Home() {
   }
 
   async function adminRefresh() {
-    setMessage('正在抓取交易所数据并生成简报...');
+    setMessage('正在向 CNB 提交抓取任务...');
     const response = await fetch('/api/admin/refresh', { method: 'POST', headers: adminHeaders() });
-    const data = (await response.json().catch(() => ({}))) as { message?: string };
-    setMessage(response.ok ? `抓取完成：${data.message || '已刷新。'}` : `抓取失败：${data.message || '交易所或简报服务暂时不可用，请稍后重试。'}`);
-    if (response.ok) await loadData();
+    const data = (await response.json().catch(() => ({}))) as { runId?: string; run?: RefreshRun; message?: string };
+    const runId = data.runId || data.run?.id;
+    if (runId && (response.status === 202 || response.status === 409)) {
+      setActiveRefreshId(runId);
+      setRefreshRun(data.run || { id: runId, status: 'queued', message: data.message });
+      setMessage(response.status === 202 ? '抓取任务已提交，正在等待 CNB 执行。' : '已有抓取任务正在运行，已恢复状态跟踪。');
+      return;
+    }
+    setMessage(`抓取任务提交失败：${data.message || 'CNB 服务暂时不可用，请稍后重试。'}`);
+  }
+
+  async function resumeAdminRefresh(password: string) {
+    const response = await fetch('/api/admin/refresh', { headers: adminHeaders(password), cache: 'no-store' });
+    if (!response.ok) return;
+    const data = (await response.json()) as { run?: RefreshRun };
+    if (!data.run) return;
+    setRefreshRun(data.run);
+    if (data.run.status === 'queued' || data.run.status === 'running') setActiveRefreshId(data.run.id);
   }
 
   async function adminArchive() {
@@ -229,8 +297,8 @@ export default function Home() {
     if (response.ok) await loadData();
   }
 
-  function adminHeaders() {
-    return { 'x-admin-password': adminPassword };
+  function adminHeaders(password = adminPassword) {
+    return { 'x-admin-password': password };
   }
 
   const filtered = useMemo(() => {
@@ -337,6 +405,8 @@ export default function Home() {
             adminSave={adminSave}
             adminDelete={adminDelete}
             adminRefresh={adminRefresh}
+            refreshRun={refreshRun}
+            refreshActive={Boolean(activeRefreshId)}
             adminArchive={adminArchive}
           />
         ) : null}
@@ -507,7 +577,7 @@ function IntroPanel() {
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        {['每日双次更新', '按周自动归档', '本地编辑导出'].map((item, index) => (
+        {['每日定时更新', '按周自动归档', '本地编辑导出'].map((item, index) => (
           <article key={item} className="border border-[#d8d1cf] bg-white p-5">
             <span className="text-sm font-black text-[#96001e]">{String(index + 1).padStart(2, '0')}</span>
             <h3 className="mt-2 text-lg font-black">{item}</h3>
@@ -521,9 +591,9 @@ function IntroPanel() {
         </article>
         <article className="border border-[#e7bebf] bg-[#fffafa] p-6">
           <p className="mb-2 text-sm font-bold text-[#96001e]">更新频率</p>
-          <h3 className="mb-3 text-xl font-black">每日 08:30、18:30</h3>
+          <h3 className="mb-3 text-xl font-black">每日 09:00</h3>
           <p className="text-sm leading-7 text-[#51484b]">
-            正式版支持管理员登录后可随时执行“抓取并生成”，即时更新当前已接入的交易所披露与简报内容。
+            CNB 按北京时间自动抓取；管理员登录后也可随时发起“抓取并生成”，任务在后台完成后自动更新全站内容。
           </p>
         </article>
       </div>
@@ -593,7 +663,7 @@ function BriefPanel(props: {
           <p className="text-sm font-bold text-[#96001e]">自动更新</p>
           <h2 className="mt-1 text-xl font-black">DeepSeek Flash 服务端生成</h2>
           <p className="mt-2 text-sm leading-7 text-[#51484b]">
-            每日北京时间 08:30、18:30 由 Vercel 定时任务自动更新，管理员也可在后台手动补抓。生成失败或格式不合格时保留原简报，不会用错误结果覆盖。
+            每日北京时间 09:00 由 CNB 定时任务自动更新，管理员也可在后台即时发起抓取。任务在后台持续执行，关闭网页不会中断；生成失败或格式不合格时保留原简报。
           </p>
         </div>
         <div className="ai-status-card">
@@ -750,6 +820,8 @@ function AdminPanel(props: {
   adminSave: (record: ReitsRecord) => void;
   adminDelete: (id: string) => void;
   adminRefresh: () => void;
+  refreshRun: RefreshRun | null;
+  refreshActive: boolean;
   adminArchive: () => void;
 }) {
   return (
@@ -766,8 +838,15 @@ function AdminPanel(props: {
         <>
           <AdminBlackboardDemo />
           <div className="flex flex-wrap gap-3 border border-[#e0c27c] bg-[#f7f1e0] p-5">
-            <button className="btn-primary" onClick={props.adminRefresh}>立即抓取并生成简报</button>
+            <button className="btn-primary" onClick={props.adminRefresh} disabled={props.refreshActive}>
+              {props.refreshActive ? '抓取任务运行中…' : '立即抓取并生成简报'}
+            </button>
             <button className="btn-muted" onClick={props.adminArchive}>归档当前周</button>
+            {props.refreshRun ? (
+              <output className="w-full text-sm leading-6 text-[#51484b]">
+                任务状态：{refreshStatusLabel(props.refreshRun.status)}。{props.refreshRun.message || ''}
+              </output>
+            ) : null}
           </div>
           <div className="grid gap-4">
             {props.records.map((record) => (
@@ -939,6 +1018,16 @@ function countBy(records: ReitsRecord[], pick: (record: ReitsRecord) => string) 
 
 function dotDate(value: string) {
   return value.replaceAll('-', '.');
+}
+
+function refreshStatusLabel(status: RefreshRun['status']) {
+  return {
+    queued: '等待执行',
+    running: '正在抓取',
+    ok: '抓取成功',
+    partial: '部分成功',
+    failed: '抓取失败',
+  }[status];
 }
 
 function escapeHtml(value: string) {

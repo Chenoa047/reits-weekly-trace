@@ -1,28 +1,53 @@
-# GitHub + Vercel deployment
+# CNB + EdgeOne deployment
 
-This project runs on Next.js with a Turso/libSQL database and is designed for Vercel.
+CNB owns the scheduled and administrator-triggered scraping jobs. EdgeOne hosts the Next.js site and only reads data or submits a CNB job.
 
-## Required environment variables
+## 1. Database
 
-Configure these values directly in the Vercel project settings. Never commit their values:
+- New database: run `db/turso-init.sql` once.
+- Existing database: run `drizzle/0001_cnb_refresh_jobs.sql` once in the Turso SQL console.
+
+## 2. CNB repository and secrets
+
+Create a private CNB repository and make it the primary remote. Keep the existing GitHub repository as a migration snapshot.
+
+Create two files in a private CNB secret repository, then replace `REPLACE_WITH_YOUR_SECRET_REPO` in `.cnb.yml` with that repository path:
+
+`reits-refresh.env.yml`:
 
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 - `DEEPSEEK_API_KEY`
+
+`reits-deploy.env.yml`:
+
+- `EDGEONE_PROJECT_NAME`
+- `EDGEONE_API_TOKEN`
+
+Enter all values yourself in CNB. Never commit the values or print them in build logs.
+
+The `main` branch runs three pipelines:
+
+- Push: test, build, and deploy EdgeOne.
+- `crontab: 0 9 * * *`: refresh every day at 09:00 Asia/Shanghai.
+- `api_trigger_manual_refresh`: asynchronous administrator refresh.
+
+## 3. EdgeOne environment variables
+
+Configure these server-side variables in the EdgeOne project:
+
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
 - `ADMIN_PASSWORD`
-- `CRON_SECRET`
+- `CNB_API_TOKEN`
+- `CNB_REPO_SLUG`
 
-## Database initialization
+Create the CNB token yourself with only the repository build-trigger permission. Do not prefix any secret with `NEXT_PUBLIC_`.
 
-Create a Turso database, open its SQL console, and run `db/turso-init.sql` once.
+## 4. Verification
 
-## Scheduled refresh
-
-`vercel.json` schedules `/api/tasks/daily-refresh` at 00:30 and 10:30 UTC, corresponding to 08:30 and 18:30 in Beijing. Vercel sends `CRON_SECRET` in the `Authorization` header for each invocation.
-
-## Deployment
-
-1. Push the repository to a private GitHub repository.
-2. Import only that repository into Vercel.
-3. Add the five environment variables above for Production.
-4. Deploy and verify the public pages before testing administrator actions.
+1. Push `main` and confirm the test/build/deploy pipeline succeeds.
+2. Log in to the website administrator panel and submit a refresh.
+3. Confirm the page moves through queued and running to ok, partial, or failed.
+4. Close the page during a run, reopen it, log in, and confirm status tracking resumes.
+5. Confirm the CNB scheduled pipeline runs once at 09:00 Asia/Shanghai.

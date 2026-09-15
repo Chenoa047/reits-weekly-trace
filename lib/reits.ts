@@ -2,6 +2,13 @@ import type { AppDb } from '@/db';
 import { generateDeepSeekBrief, sourceSignature } from '@/lib/deepseek';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
 import {
+  beginScheduledRefreshRun,
+  finishRefreshRun,
+  startQueuedRefreshRun,
+  type RefreshRunStatus,
+  type RefreshTrigger,
+} from '@/lib/refresh-runs';
+import {
   announcementStage,
   classifyDocument,
   documentLabel,
@@ -292,31 +299,22 @@ export async function refreshWeek(
   options: {
     generateBriefs?: boolean;
     forceGenerate?: boolean;
-    trigger?: 'scheduled' | 'manual' | 'recovery';
+    trigger?: RefreshTrigger;
+    runId?: string;
   } = {},
 ) {
   const { start, end } = weekRangeFor(dateText);
-  const runId = crypto.randomUUID();
-  const startedAt = new Date().toISOString();
-  const triggerLabel =
-    options.trigger === 'scheduled'
-      ? '定时任务'
-      : options.trigger === 'manual'
-        ? '管理员手动更新'
-        : '访问触发补抓';
-  await db
-    .prepare(
-      'INSERT INTO fetch_runs (id, started_at, status, week_start, week_end, message) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-    .bind(
-      runId,
-      startedAt,
-      'running',
-      start,
-      end,
-      `${triggerLabel}：开始抓取交易所数据。`,
-    )
-    .run();
+  const trigger = options.trigger || 'scheduled';
+  const triggerLabel = trigger === 'manual' ? '管理员手动更新' : '定时任务';
+  let runId = options.runId;
+  if (runId) {
+    const started = await startQueuedRefreshRun(db, runId);
+    if (!started) throw new Error('手动抓取任务不存在、已经执行，或被其他任务占用。');
+  } else {
+    const started = await beginScheduledRefreshRun(db, { start, end });
+    if (!started.ok) throw new Error(`已有抓取任务正在运行${started.active?.id ? `（${started.active.id}）` : ''}。`);
+    runId = started.runId;
+  }
 
   let message = '';
   let sseCount = 0;
@@ -326,7 +324,7 @@ export async function refreshWeek(
   let failedCount = 0;
   let inputTokens = 0;
   let outputTokens = 0;
-  let runStatus: 'ok' | 'failed' = 'ok';
+  let runStatus: Exclude<RefreshRunStatus, 'queued' | 'running'> = 'ok';
   try {
     const [sseResult, szseResult] = await Promise.allSettled([
       fetchSseRecords(start, end),
@@ -401,29 +399,23 @@ export async function refreshWeek(
       szseResult.status === 'fulfilled'
         ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
         : `深交所抓取失败，本次保留已有数据（${describeFetchError(szseResult.reason)}）`;
+    runStatus = sseResult.status === 'rejected' || szseResult.status === 'rejected' ? 'partial' : 'ok';
     message = `${triggerLabel}：${sseMessage}；${szseMessage}${aiMessage}。`;
-    await db
-      .prepare(
-        'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
-      )
-      .bind(new Date().toISOString(), 'ok', sseCount, szseCount, message, runId)
-      .run();
+    await finishRefreshRun(db, runId, {
+      status: runStatus,
+      sseCount,
+      szseCount,
+      message,
+    });
   } catch (error) {
     runStatus = 'failed';
     message = `${triggerLabel}：${error instanceof Error ? error.message : '抓取失败'}`;
-    await db
-      .prepare(
-        'UPDATE fetch_runs SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ? WHERE id = ?',
-      )
-      .bind(
-        new Date().toISOString(),
-        'failed',
-        sseCount,
-        szseCount,
-        message,
-        runId,
-      )
-      .run();
+    await finishRefreshRun(db, runId, {
+      status: 'failed',
+      sseCount,
+      szseCount,
+      message,
+    });
   }
   return {
     status: runStatus,

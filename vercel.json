@@ -1,14 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["hkg1"],
-  "crons": [
-    {
-      "path": "/api/tasks/daily-refresh",
-      "schedule": "30 0 * * *"
-    },
-    {
-      "path": "/api/tasks/daily-refresh",
-      "schedule": "30 10 * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

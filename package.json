@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=20.16.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -12,6 +12,9 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "test:rules": "node --experimental-strip-types --test tests/reits-rules.test.ts",
+    "test:jobs": "node --experimental-strip-types --test tests/refresh-runs.test.ts",
+    "test": "npm run test:rules && npm run test:jobs",
+    "refresh": "tsx scripts/run-refresh.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
@@ -48,6 +51,7 @@
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "tailwindcss": "4.2.1",
+    "tsx": "^4.23.13",
     "typescript": "5.9.3"
   },
   "type": "module"

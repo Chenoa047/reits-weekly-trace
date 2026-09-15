@@ -3,11 +3,20 @@ CREATE TABLE IF NOT EXISTS fetch_runs (
   started_at TEXT NOT NULL,
   finished_at TEXT,
   status TEXT NOT NULL,
+  trigger TEXT DEFAULT 'legacy' NOT NULL,
+  cnb_build_id TEXT,
   week_start TEXT NOT NULL,
   week_end TEXT NOT NULL,
   sse_count INTEGER DEFAULT 0 NOT NULL,
   szse_count INTEGER DEFAULT 0 NOT NULL,
   message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS refresh_locks (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS projects (
