@@ -14,7 +14,7 @@ main:
           script: npm ci && npm test && npm run build
           timeout: 2h
         - name: deploy-edgeone
-          script: npx edgeone pages deploy -n "$EDGEONE_PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
+          script: npx edgeone makers deploy -n "$EDGEONE_PROJECT_NAME" -t "$EDGEONE_API_TOKEN"
           timeout: 2h
 
   "crontab: 0 9 * * *":
