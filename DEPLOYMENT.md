@@ -15,14 +15,33 @@ Create two files in a private CNB secret repository, then replace `REPLACE_WITH_
 
 `reits-refresh.env.yml`:
 
-- `TURSO_DATABASE_URL`
-- `TURSO_AUTH_TOKEN`
-- `DEEPSEEK_API_KEY`
+```yaml
+allow_slugs:
+  - YOUR_ORGANIZATION/reits-weekly-trace
+allow_events:
+  - crontab
+  - api_trigger_manual_refresh
+allow_branches:
+  - main
+TURSO_DATABASE_URL: ENTER_IN_CNB
+TURSO_AUTH_TOKEN: ENTER_IN_CNB
+DEEPSEEK_API_KEY: ENTER_IN_CNB
+```
 
 `reits-deploy.env.yml`:
 
-- `EDGEONE_PROJECT_NAME`
-- `EDGEONE_API_TOKEN`
+```yaml
+allow_slugs:
+  - YOUR_ORGANIZATION/reits-weekly-trace
+allow_events:
+  - push
+allow_branches:
+  - main
+EDGEONE_PROJECT_NAME: reits-weekly-trace
+EDGEONE_API_TOKEN: ENTER_IN_CNB
+```
+
+Replace `YOUR_ORGANIZATION/reits-weekly-trace` with the exact slug of the main CNB repository. Replace each `ENTER_IN_CNB` placeholder yourself in the private secret repository; never send or commit those values to the application repository.
 
 Enter all values yourself in CNB. Never commit the values or print them in build logs.
 
