@@ -1,5 +1,5 @@
 import { getDb } from '@/db';
-import { demoCurrentWeek, jsonHeaders, latestRun, listCurrentWeek, todayChina } from '@/lib/reits';
+import { jsonHeaders, latestRun, listCurrentWeek, todayChina } from '@/lib/reits';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -8,9 +8,19 @@ export async function GET(request: Request) {
   try {
     db = getDb();
   } catch {
-    return Response.json({ ...demoCurrentWeek(date), latestRun: null }, { headers: jsonHeaders() });
+    return Response.json(
+      { message: '网站数据库配置未在运行环境生效。' },
+      { status: 503, headers: jsonHeaders() },
+    );
   }
-  const payload = await listCurrentWeek(db, date);
-  const run = await latestRun(db);
-  return Response.json({ ...payload, latestRun: run }, { headers: jsonHeaders() });
+  try {
+    const payload = await listCurrentWeek(db, date);
+    const run = await latestRun(db);
+    return Response.json({ ...payload, latestRun: run }, { headers: jsonHeaders() });
+  } catch {
+    return Response.json(
+      { message: '网站无法读取数据库，请稍后重试或联系管理员。' },
+      { status: 503, headers: jsonHeaders() },
+    );
+  }
 }

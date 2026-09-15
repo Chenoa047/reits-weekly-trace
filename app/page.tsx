@@ -147,7 +147,11 @@ export default function Home() {
     setLoading(true);
     try {
       const response = await fetch('/api/reits');
-      const data = (await response.json()) as ApiPayload;
+      const data = (await response.json()) as ApiPayload & { message?: string };
+      if (!response.ok) {
+        setMessage(data.message || '数据读取失败，请稍后刷新。');
+        return;
+      }
       setPayload(data);
       const local = localStorage.getItem(localKey);
       setRecords(local ? JSON.parse(local) : data.records);

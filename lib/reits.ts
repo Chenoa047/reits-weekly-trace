@@ -217,8 +217,7 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
        ORDER BY update_date DESC, updated_at DESC`,
     )
     .bind(start, end)
-    .all<Record<string, unknown>>()
-    .catch(() => ({ results: [] as Record<string, unknown>[] }));
+    .all<Record<string, unknown>>();
   return {
     range: { start, end },
     records: rows.results.length
@@ -230,8 +229,7 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
 export async function latestRun(db: D1) {
   const row = await db
     .prepare('SELECT * FROM fetch_runs ORDER BY started_at DESC LIMIT 1')
-    .first<Record<string, unknown>>()
-    .catch(() => null);
+    .first<Record<string, unknown>>();
   return row || null;
 }
 
