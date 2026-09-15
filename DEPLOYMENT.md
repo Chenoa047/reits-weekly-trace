@@ -11,13 +11,13 @@ CNB owns the scheduled and administrator-triggered scraping jobs. EdgeOne hosts 
 
 Create a private CNB repository and make it the primary remote. Keep the existing GitHub repository as a migration snapshot.
 
-Create two files in a private CNB secret repository, then replace `REPLACE_WITH_YOUR_SECRET_REPO` in `.cnb.yml` with that repository path:
+Create the following two files in the private CNB secret repository `reits-weekly-trace/cmwa-secrets`:
 
 `reits-refresh.env.yml`:
 
 ```yaml
 allow_slugs:
-  - YOUR_ORGANIZATION/reits-weekly-trace
+  - reits-weekly-trace/cmwa
 allow_events:
   - crontab
   - api_trigger_manual_refresh
@@ -32,7 +32,7 @@ DEEPSEEK_API_KEY: ENTER_IN_CNB
 
 ```yaml
 allow_slugs:
-  - YOUR_ORGANIZATION/reits-weekly-trace
+  - reits-weekly-trace/cmwa
 allow_events:
   - push
 allow_branches:
@@ -41,7 +41,7 @@ EDGEONE_PROJECT_NAME: reits-weekly-trace
 EDGEONE_API_TOKEN: ENTER_IN_CNB
 ```
 
-Replace `YOUR_ORGANIZATION/reits-weekly-trace` with the exact slug of the main CNB repository. Replace each `ENTER_IN_CNB` placeholder yourself in the private secret repository; never send or commit those values to the application repository.
+Replace each `ENTER_IN_CNB` placeholder yourself in the private secret repository; never send or commit those values to the application repository.
 
 Enter all values yourself in CNB. Never commit the values or print them in build logs.
 

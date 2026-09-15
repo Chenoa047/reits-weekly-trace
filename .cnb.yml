@@ -1,4 +1,4 @@
-# 将下面的 imports 地址替换为您在 CNB 创建的密钥仓库文件地址。
+# imports 指向私有 CNB 密钥仓库中的环境变量文件。
 # 部署密钥与抓取密钥分文件保存，不要将变量值提交到本仓库。
 main:
   push:
@@ -8,7 +8,7 @@ main:
         cpus: 2
       docker:
         image: node:22-bookworm
-      imports: https://cnb.cool/REPLACE_WITH_YOUR_SECRET_REPO/-/blob/main/reits-deploy.env.yml
+      imports: https://cnb.cool/reits-weekly-trace/cmwa-secrets/-/blob/main/reits-deploy.env.yml
       stages:
         - name: test-and-build
           script: npm ci && npm test && npm run build
@@ -24,7 +24,7 @@ main:
         cpus: 2
       docker:
         image: node:22-bookworm
-      imports: https://cnb.cool/REPLACE_WITH_YOUR_SECRET_REPO/-/blob/main/reits-refresh.env.yml
+      imports: https://cnb.cool/reits-weekly-trace/cmwa-secrets/-/blob/main/reits-refresh.env.yml
       stages:
         - name: refresh-at-09-00-asia-shanghai
           script: npm ci && npm run refresh
@@ -37,7 +37,7 @@ main:
         cpus: 2
       docker:
         image: node:22-bookworm
-      imports: https://cnb.cool/REPLACE_WITH_YOUR_SECRET_REPO/-/blob/main/reits-refresh.env.yml
+      imports: https://cnb.cool/reits-weekly-trace/cmwa-secrets/-/blob/main/reits-refresh.env.yml
       stages:
         - name: run-manual-refresh
           script: npm ci && npm run refresh -- --manual
