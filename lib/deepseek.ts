@@ -20,6 +20,8 @@ type BriefMaterial = {
   }>;
 };
 
+export const BRIEF_RULES_VERSION = '2026-09-16-v1';
+
 export type DeepSeekBriefResult = {
   brief: string;
   inputTokens: number;
@@ -53,6 +55,8 @@ export async function generateDeepSeekBrief(
 
     if (!response.ok) throw new Error(classifyDeepSeekError(response.status));
     const data = (await response.json()) as DeepSeekResponse;
+    if (data.status === 'incomplete' || data.incomplete_details)
+      throw new Error('incomplete_response');
     const brief = normalizeBrief(extractOutputText(data));
     validateBrief(brief, record);
     return {
@@ -87,15 +91,26 @@ export function sourceSignature(record: BriefMaterial) {
   });
 }
 
+export function needsBriefRegeneration(
+  existing: (BriefMaterial & { briefRulesVersion?: string }) | null,
+  incoming: BriefMaterial,
+  force = false,
+) {
+  return force || !existing ||
+    existing.briefRulesVersion !== BRIEF_RULES_VERSION ||
+    sourceSignature(existing) !== sourceSignature(incoming) ||
+    !isBriefDisplayable(existing.brief, incoming.progressType);
+}
+
 function buildInstructions(record: BriefMaterial) {
   return `你是公募REITs行业周报撰写助手。只依据用户提供的交易所页面、公告和文件摘录撰写一段中文简报正文，不得调用外部知识。
 
 通用规则：
-1. 使用金融专业书面语，客观、紧凑、单段呈现；不分点、不使用感叹号，不重复标题。
+1. 使用金融专业书面语，客观、紧凑、单段呈现；不分点、不使用感叹号，不重复标题。必须以完整句子和句号结尾，不能逐项照抄文件目录或问询条目。
 2. 正文使用项目简称，不写基金全称；删除“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，也不写基金管理人、专项计划名称或“此前于某日获受理”等无关流程回顾。
 3. 每个事实只能来自下方“允许使用的原文件摘录”；项目动态页只可用于确认本次进度、交易所和日期。唯一例外是“申报”阶段，可使用项目动态页已经披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。不同文件相互矛盾时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。
-4. 申报且无附件时，只写状态及交易所页面已经披露的事实，不强行补充底层资产、估值或发行安排，也不为了凑字数反复说明“尚未披露”。材料充分时控制在250至400字；无附件的申报项目可短至80至180字。
-5. 反馈/问询只概括监管关注的大类主题，不展开逐项问题；回复反馈优先写估值参数、评估基准日和评估值变化，再概括其他回复；所有比例和金额应交叉核算。
+4. 申报且无附件时，只写状态及交易所页面已经披露的事实，不强行补充底层资产、估值或发行安排，也不为了凑字数反复说明“尚未披露”。材料不足时允许一两句短稿；内容多少由可核验事实决定，不为达到固定字数添加空话。
+5. 反馈/问询只概括监管关注的大类主题，通常一至两句，不展开逐项问题；回复反馈优先写估值参数、评估基准日和评估值变化，再概括其他回复；所有比例和金额应交叉核算。材料未给出变化数据时，不得硬写估值变化。
 6. 首发与扩募是项目属性，不是进度。本项目属性由结构化字段明确给出，不得自行判断。扩募项目正文必须明确“扩募”，资产部分只介绍本次新增资产。
 7. 只输出正文，不输出标题、说明、引用列表、页码或Markdown。
 
@@ -110,7 +125,7 @@ function buildMaterial(record: BriefMaterial) {
 项目属性：${record.offeringType}
 更新时间：${record.updateDate}
 原始权益人（仅申报阶段可直接使用此项目页字段）：${record.progressType === '申报' ? record.originator || '材料未披露' : '必须从允许使用的原文件正文核验'}
-交易所原文摘录：${stripHtml(record.sourceHtml) || '暂无结构化原文摘录'}
+交易所原文摘录（仅申报阶段可用于事实描述）：${record.progressType === '申报' ? stripHtml(record.sourceHtml) || '暂无结构化原文摘录' : '其他阶段仅用结构化进度、交易所和日期；原始权益人与资产事实必须从下方原文件正文核验'}
 允许使用的原文件摘录：${
     record.files
       .map(
@@ -137,8 +152,8 @@ function stageInstruction(record: BriefMaterial) {
     受理: '只依据最新招募说明书，按“时间—获受理—原始权益人—底层资产核心参数”的顺序写。',
     '反馈/问询':
       '只依据交易所出具的反馈意见或问询函，概括“时间—监管动作—主要关注主题—其他意见”。',
-    回复反馈: '依据交易所问询和原始权益人回复，按“时间—回复动作—估值参数与评估值变化—其他主要回复—项目背景”的顺序写。',
-    注册生效: '只依据最新招募说明书，按“时间—注册生效—资产概况—估值变化—资产持有方”的顺序写。',
+    回复反馈: '依据交易所问询和原始权益人回复，写“时间—回复动作—回复文件确有披露的主要变化—其他主要回复”；项目背景也必须来自允许使用的原文件。',
+    注册生效: '只依据最新招募说明书，写“时间—注册生效—本次资产概况”；仅当文件确有前后数据时写估值变化和持有方。',
     询价: '以询价公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
     发售: '以发售公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
     认购结果: '以认购结果公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
@@ -164,11 +179,23 @@ function normalizeBrief(value: string) {
     .trim();
 }
 
-function validateBrief(value: string, record: BriefMaterial) {
+export function isCompleteBrief(value: string) {
+  return value.trim().endsWith('。');
+}
+
+export function isBriefDisplayable(value: string, stage: string) {
+  const length = Array.from(value.replace(/\s/g, '')).length;
+  return isCompleteBrief(value) &&
+    (stage !== '反馈/问询' || length <= 280);
+}
+
+export function validateBrief(value: string, record: BriefMaterial) {
+  if (!isCompleteBrief(value)) throw new Error('incomplete_sentence');
   const length = Array.from(value.replace(/\s/g, '')).length;
   const minimum =
-    record.progressType === '申报' && record.files.length === 0 ? 80 : 180;
-  if (length < minimum || length > 400) throw new Error('invalid_length');
+    record.progressType === '申报' && record.files.length === 0 ? 25 : 60;
+  const maximum = record.progressType === '反馈/问询' ? 280 : 400;
+  if (length < minimum || length > maximum) throw new Error('invalid_length');
   if (/[!！]/.test(value)) throw new Error('invalid_format');
   if (/(^|\s)[-•·]\s|(^|\s)\d+[.、]\s/.test(value))
     throw new Error('invalid_format');
@@ -176,12 +203,14 @@ function validateBrief(value: string, record: BriefMaterial) {
     throw new Error('invalid_meta_content');
   if (record.offeringType === '扩募' && !value.includes('扩募'))
     throw new Error('missing_expansion_label');
+  if (record.progressType === '反馈/问询' && /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value))
+    throw new Error('invalid_format');
   validateNumbers(value, record);
 }
 
 function validateNumbers(value: string, record: BriefMaterial) {
   const source =
-    `${stripHtml(record.sourceHtml)}\n${record.files.map((file) => file.content || '').join('\n')}`.replace(
+    `${record.progressType === '申报' ? stripHtml(record.sourceHtml) : ''}\n${record.files.map((file) => file.content || '').join('\n')}`.replace(
       /[,，\s]/g,
       '',
     );
@@ -219,6 +248,8 @@ function numberValue(value: unknown) {
 }
 
 type DeepSeekResponse = {
+  status?: string;
+  incomplete_details?: unknown;
   output_text?: string;
   output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
   usage?: { input_tokens?: number; output_tokens?: number };

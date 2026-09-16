@@ -1,5 +1,5 @@
 import type { AppDb } from '@/db';
-import { generateDeepSeekBrief, sourceSignature } from '@/lib/deepseek';
+import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isBriefDisplayable, needsBriefRegeneration } from '@/lib/deepseek';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
 import {
   beginScheduledRefreshRun,
@@ -35,6 +35,7 @@ export type ReitsRecord = {
   weekEnd: string;
   originator?: string;
   brief: string;
+  briefRulesVersion?: string;
   note?: string;
   files: ReitsFile[];
   sourceHtml: string;
@@ -43,6 +44,7 @@ export type ReitsRecord = {
 };
 
 type D1 = AppDb;
+const UNPUBLISHED_BRIEF = '本条简报暂未发布：内容正在重新核验。';
 
 const SSE_QUERY_ORIGINS = ['https://query.sse.com.cn', 'http://query.sse.com.cn'] as const;
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
@@ -220,9 +222,14 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
     .all<Record<string, unknown>>();
   return {
     range: { start, end },
-    records: rows.results.length
+    records: (rows.results.length
       ? rows.results.map(rowToRecord)
-      : seedRecordsForRange(start, end),
+      : seedRecordsForRange(start, end)).map((record) => ({
+        ...record,
+        brief: isBriefDisplayable(record.brief, record.progressType)
+          ? record.brief
+          : UNPUBLISHED_BRIEF,
+      })),
   };
 }
 
@@ -320,6 +327,7 @@ export async function refreshWeek(
   let generatedCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
+  const briefFailures = new Set<string>();
   let inputTokens = 0;
   let outputTokens = 0;
   let runStatus: Exclude<RefreshRunStatus, 'queued' | 'running'> = 'ok';
@@ -341,10 +349,9 @@ export async function refreshWeek(
     szseCount = szseRecords.length;
     for (const record of [...sseRecords, ...szseRecords]) {
       const existing = await findRecord(db, record.id);
-      const sourceChanged =
-        !existing || sourceSignature(existing) !== sourceSignature(record);
       const shouldGenerate = Boolean(
-        options.generateBriefs && (options.forceGenerate || sourceChanged),
+        options.generateBriefs &&
+          needsBriefRegeneration(existing, record, options.forceGenerate),
       );
       if (shouldGenerate) {
         try {
@@ -362,18 +369,20 @@ export async function refreshWeek(
           };
           const generated = await generateDeepSeekBrief(generationRecord);
           record.brief = generated.brief;
+          record.briefRulesVersion = BRIEF_RULES_VERSION;
           record.note = undefined;
           generatedCount += 1;
           inputTokens += generated.inputTokens;
           outputTokens += generated.outputTokens;
-        } catch {
+        } catch (error) {
           failedCount += 1;
+          briefFailures.add(describeBriefFailure(error));
           if (existing) {
             record.brief = existing.brief;
             record.note = existing.note;
-          } else if (record.progressType !== '申报') {
-            record.brief =
-              '本条简报暂未发布：规定原文件尚未成功读取，系统将在下次自动更新时重试。';
+            record.briefRulesVersion = existing.briefRulesVersion;
+          } else {
+            record.brief = UNPUBLISHED_BRIEF;
             record.note = '未使用缺失或无法读取的材料生成内容。';
           }
         }
@@ -382,12 +391,13 @@ export async function refreshWeek(
         if (existing) {
           record.brief = existing.brief;
           record.note = existing.note;
+          record.briefRulesVersion = existing.briefRulesVersion;
         }
       }
       await upsertRecord(db, record);
     }
     const aiMessage = options.generateBriefs
-      ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
+      ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（${[...briefFailures].join('、')}）` : ''}，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
     const sseMessage =
       sseResult.status === 'fulfilled'
@@ -397,7 +407,11 @@ export async function refreshWeek(
       szseResult.status === 'fulfilled'
         ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
         : `深交所抓取失败，本次保留已有数据（${describeFetchError(szseResult.reason)}）`;
-    runStatus = sseResult.status === 'rejected' || szseResult.status === 'rejected' ? 'partial' : 'ok';
+    runStatus = failedCount && !generatedCount && !skippedCount
+      ? 'failed'
+      : sseResult.status === 'rejected' || szseResult.status === 'rejected' || failedCount
+        ? 'partial'
+        : 'ok';
     message = `${triggerLabel}：${sseMessage}；${szseMessage}${aiMessage}。`;
     await finishRefreshRun(db, runId, {
       status: runStatus,
@@ -588,9 +602,10 @@ async function mapSzseProject(
   const detailUrl = `https://reits.szse.cn/projectdynamic/detail/index.html?id=${project.prjid}`;
   const detailResponse = await fetchSzseJson<{ data?: SzseProjectDetail }>(
     `/api/reits/projectrends/details?id=${project.prjid}`,
-  ).catch(() => ({ data: undefined }));
+  );
   const detail = detailResponse.data;
-  const files = detail ? szseFiles(detail) : [];
+  if (!detail) throw new Error('深交所项目详情返回格式异常');
+  const files = szseFiles(detail);
   const status = clean(project.prjst);
   const progressType = inferProjectStage(status, files);
   const shortName = briefName(project.cmpnm);
@@ -676,7 +691,7 @@ async function mapSseProject(
   weekStart: string,
   weekEnd: string,
 ): Promise<ReitsRecord> {
-  const files = await fetchSseFiles(project.BOND_NUM).catch(() => []);
+  const files = await fetchSseFiles(project.BOND_NUM);
   const status = sseStatus(project);
   const progressType = inferProjectStage(status, files);
   const offeringType: OfferingType =
@@ -711,7 +726,8 @@ async function mapSseProject(
 async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
   const path = `/commonSoaQuery.do?isPagination=false&audit_id=${encodeURIComponent(auditId)}&sqlId=ZQ_GGJG`;
   const data = await fetchSseJson<{ result?: SseFile[] }>(path, SSE_REFERER);
-  return (data.result || []).map((file) => {
+  if (!Array.isArray(data.result)) throw new Error('上交所项目附件返回格式异常');
+  return data.result.map((file) => {
     const kind = classifyDocument(file.FILE_TITLE);
     return {
       label: documentLabel(kind),
@@ -986,6 +1002,19 @@ function describeFetchError(error: unknown) {
   return message.slice(0, 80) || '未知网络错误';
 }
 
+function describeBriefFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (/缺少规定原文件/.test(message)) return '规定原文件缺失';
+  if (/原文件|PDF/.test(message)) return '原文件下载或PDF读取失败';
+  if (/invalid_|unsupported_|incomplete_|missing_expansion/.test(message))
+    return '简报质量校验未通过';
+  if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
+    return '简报服务暂时不可用';
+  if (/not_configured|authentication_failed|insufficient_balance/.test(message))
+    return '简报服务配置或余额异常';
+  return '简报生成失败';
+}
+
 function buildSseBrief(
   project: SseProject,
   progressType: string,
@@ -1038,6 +1067,7 @@ function rowToRecord(row: Record<string, unknown>): ReitsRecord {
     originator: row.originator ? String(row.originator) : undefined,
     brief: String(row.brief),
     note: row.note ? String(row.note) : undefined,
+    briefRulesVersion: rawRecord(row).briefRulesVersion,
     files: JSON.parse(String(row.files_json || '[]')),
     sourceHtml: String(row.source_html || ''),
     sourceUrl: row.source_url ? String(row.source_url) : undefined,

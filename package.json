@@ -12,8 +12,9 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "test:rules": "node --experimental-strip-types --test tests/reits-rules.test.ts",
+    "test:brief": "node --experimental-strip-types --test tests/deepseek-brief.test.ts",
     "test:jobs": "node --experimental-strip-types --test tests/refresh-runs.test.ts",
-    "test": "npm run test:rules && npm run test:jobs",
+    "test": "npm run test:rules && npm run test:brief && npm run test:jobs",
     "refresh": "tsx scripts/run-refresh.ts",
     "db:generate": "drizzle-kit generate"
   },

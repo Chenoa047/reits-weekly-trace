@@ -75,10 +75,13 @@ export function inferProjectStage(
         file.section === '反馈意见及回复' || file.section === '问询与回复',
     );
     const hasExchangeQuestion = sectionFiles.some(
-      (file) => file.kind === '反馈意见' || file.kind === '问询函',
+      (file) =>
+        (file.kind === '反馈意见' || file.kind === '问询函') &&
+        file.issuerRole !== '原始权益人',
     );
     const hasOriginatorReply = sectionFiles.some(
-      (file) => file.kind === '回复反馈',
+      (file) =>
+        file.kind === '回复反馈' && file.issuerRole !== '交易所',
     );
     return hasExchangeQuestion && hasOriginatorReply ? '回复反馈' : '反馈/问询';
   }
@@ -106,16 +109,17 @@ export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
     return files.filter(
       (file) =>
         (file.section === '反馈意见及回复' || file.section === '问询与回复') &&
-        (file.kind === '反馈意见' || file.kind === '问询函'),
+        (file.kind === '反馈意见' || file.kind === '问询函') &&
+        file.issuerRole !== '原始权益人',
     );
   }
   if (stage === '回复反馈') {
     return files.filter(
       (file) =>
         (file.section === '反馈意见及回复' || file.section === '问询与回复') &&
-        (file.kind === '反馈意见' ||
-          file.kind === '问询函' ||
-          file.kind === '回复反馈'),
+        (((file.kind === '反馈意见' || file.kind === '问询函') &&
+          file.issuerRole !== '原始权益人') ||
+          (file.kind === '回复反馈' && file.issuerRole !== '交易所')),
     );
   }
   if (stage === '询价') return present([latest('询价'), latest('招募说明书')]);
@@ -151,6 +155,8 @@ export function missingRequiredMaterial(
   const kinds = new Set(files.map((file) => file.kind));
   const expected = required[stage as ReitsStage] || [];
   if (stage === '反馈/问询' && kinds.has('问询函')) return [];
+  if (stage === '回复反馈' && !kinds.has('反馈意见') && !kinds.has('问询函'))
+    return ['反馈意见/问询函'];
   return expected.filter((kind) => !kinds.has(kind));
 }
 
