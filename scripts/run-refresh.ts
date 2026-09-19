@@ -1,5 +1,8 @@
+import { setDefaultResultOrder } from 'node:dns';
 import { getDb } from '@/db';
 import { refreshWeek, todayChina } from '@/lib/reits';
+
+setDefaultResultOrder('ipv4first');
 
 const trigger = process.argv.includes('--manual') ? 'manual' : 'scheduled';
 const runId = trigger === 'manual' ? process.env.REFRESH_RUN_ID : undefined;

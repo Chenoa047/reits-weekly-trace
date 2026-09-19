@@ -1,4 +1,5 @@
 import type { ReitsSourceFile } from '@/lib/reits-rules';
+import { describeFetchError } from '@/lib/fetch-error';
 
 const MAX_PAGES = 600;
 const MAX_TOTAL_EXCERPT_CHARS = 100_000;
@@ -19,12 +20,7 @@ export async function addDocumentExcerpts(
 }
 
 async function extractPdfText(url: string) {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: { 'user-agent': 'Mozilla/5.0 REITsBrief/1.0' },
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!response.ok) throw new Error(`原文件下载失败：HTTP ${response.status}`);
+  const response = await downloadPdf(url);
   const contentType = response.headers.get('content-type') || '';
   if (
     !contentType.toLowerCase().includes('pdf') &&
@@ -54,6 +50,37 @@ async function extractPdfText(url: string) {
   const result = pages.join('\n');
   if (!result) throw new Error('原文件未解析出可用文字');
   return result;
+}
+
+async function downloadPdf(url: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+          'accept-language': 'zh-CN,zh;q=0.9',
+          referer: pdfReferer(url),
+          'user-agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  throw new Error(`原文件下载失败：${describeFetchError(lastError)}`);
+}
+
+function pdfReferer(url: string) {
+  return new URL(url).hostname.endsWith('szse.cn')
+    ? 'https://reits.szse.cn/projectdynamic/index.html'
+    : 'https://www.sse.com.cn/reits/info/';
 }
 
 function selectRelevantText(text: string, stage: string, limit: number) {

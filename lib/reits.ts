@@ -337,7 +337,7 @@ export async function refreshWeek(
   let generatedCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
-  const briefFailures = new Set<string>();
+  const briefFailures = new Map<string, number>();
   let inputTokens = 0;
   let outputTokens = 0;
   let runStatus: Exclude<RefreshRunStatus, 'queued' | 'running'> = 'ok';
@@ -365,6 +365,14 @@ export async function refreshWeek(
       );
       if (shouldGenerate) {
         try {
+          if (record.progressType === '申报') {
+            record.evidence = [];
+            record.briefRulesVersion = BRIEF_RULES_VERSION;
+            record.note = undefined;
+            generatedCount += 1;
+            await upsertRecord(db, record);
+            continue;
+          }
           const missing = missingRequiredMaterial(
             record.progressType,
             record.files,
@@ -387,7 +395,8 @@ export async function refreshWeek(
           outputTokens += generated.outputTokens;
         } catch (error) {
           failedCount += 1;
-          briefFailures.add(describeBriefFailure(error));
+          const reason = describeBriefFailure(error);
+          briefFailures.set(reason, (briefFailures.get(reason) || 0) + 1);
           if (
             existing &&
             isCurrentBriefDisplayable(
@@ -419,7 +428,7 @@ export async function refreshWeek(
       await upsertRecord(db, record);
     }
     const aiMessage = options.generateBriefs
-      ? `；DeepSeek Flash 生成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（${[...briefFailures].join('、')}）` : ''}，输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
+      ? `；简报完成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（${[...briefFailures].map(([reason, count]) => `${reason} ${count} 条`).join('、')}）` : ''}，DeepSeek 输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
     const sseMessage =
       sseResult.status === 'fulfilled'
@@ -1038,7 +1047,9 @@ async function fetchSzseJson<T>(path: string): Promise<T> {
 function describeBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (/缺少规定原文件/.test(message)) return '规定原文件缺失';
-  if (/原文件|PDF/.test(message)) return '原文件下载或PDF读取失败';
+  if (/原文件下载失败/.test(message))
+    return `原文件下载失败${message.includes('连接超时') ? '（连接超时）' : ''}`;
+  if (/原文件|PDF/.test(message)) return 'PDF文字读取失败';
   if (/invalid_|unsupported_|incomplete_|missing_evidence|missing_expansion/.test(message))
     return '简报质量校验未通过';
   if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
