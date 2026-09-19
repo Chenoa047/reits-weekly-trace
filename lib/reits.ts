@@ -1,5 +1,6 @@
 import type { AppDb } from '@/db';
 import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isCurrentBriefDisplayable, needsBriefRegeneration, type BriefEvidence } from '@/lib/deepseek';
+import { describeFetchError } from '@/lib/fetch-error';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
 import {
   beginScheduledRefreshRun,
@@ -1032,17 +1033,6 @@ async function fetchSzseJson<T>(path: string): Promise<T> {
     }
   }
   throw new Error([...new Set(failures)].join('、'));
-}
-
-function describeFetchError(error: unknown) {
-  const message = error instanceof Error ? error.message : '';
-  const status = message.match(/(?:返回|HTTP)\s*(\d{3})/)?.[1];
-  if (status) return `HTTP ${status}`;
-  if (/timeout|timed out|aborted/i.test(message)) return '连接超时';
-  if (/json|unexpected token|返回格式/i.test(message)) return '返回格式异常';
-  if (/fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(message))
-    return '网络连接失败';
-  return message.slice(0, 80) || '未知网络错误';
 }
 
 function describeBriefFailure(error: unknown) {
