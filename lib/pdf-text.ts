@@ -94,12 +94,13 @@ function selectRelevantText(text: string, stage: string, limit: number) {
     for (let count = 0; count < 12; count += 1) {
       const index = text.indexOf(keyword, from);
       if (index < 0) break;
-      windows.push(
-        text.slice(
-          Math.max(0, index - 900),
-          Math.min(text.length, index + 2_100),
-        ),
-      );
+      const start = Math.max(0, index - 900);
+      const window = text.slice(start, Math.min(text.length, index + 2_100));
+      const markerStart = text.lastIndexOf('[第', start);
+      const pageMarker = markerStart >= 0
+        ? text.slice(markerStart, start).match(/^\[第\d+页\]/)?.[0]
+        : undefined;
+      windows.push(pageMarker && !window.startsWith('[第') ? `${pageMarker} ${window}` : window);
       from = index + keyword.length;
     }
   }

@@ -20,12 +20,20 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-16-v1';
+export const BRIEF_RULES_VERSION = '2026-09-19-v3';
 
 export type DeepSeekBriefResult = {
   brief: string;
+  evidence: BriefEvidence[];
   inputTokens: number;
   outputTokens: number;
+};
+
+export type BriefEvidence = {
+  fileUrl: string;
+  page: number;
+  claim: string;
+  quote: string;
 };
 
 export async function generateDeepSeekBrief(
@@ -57,10 +65,11 @@ export async function generateDeepSeekBrief(
     const data = (await response.json()) as DeepSeekResponse;
     if (data.status === 'incomplete' || data.incomplete_details)
       throw new Error('incomplete_response');
-    const brief = normalizeBrief(extractOutputText(data));
+    const { brief, evidence } = parseBriefResponse(extractOutputText(data), record);
     validateBrief(brief, record);
     return {
       brief,
+      evidence,
       inputTokens: numberValue(data.usage?.input_tokens),
       outputTokens: numberValue(data.usage?.output_tokens),
     };
@@ -106,13 +115,16 @@ function buildInstructions(record: BriefMaterial) {
   return `你是公募REITs行业周报撰写助手。只依据用户提供的交易所页面、公告和文件摘录撰写一段中文简报正文，不得调用外部知识。
 
 通用规则：
-1. 使用金融专业书面语，客观、紧凑、单段呈现；不分点、不使用感叹号，不重复标题。必须以完整句子和句号结尾，不能逐项照抄文件目录或问询条目。
-2. 正文使用项目简称，不写基金全称；删除“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，也不写基金管理人、专项计划名称或“此前于某日获受理”等无关流程回顾。
-3. 每个事实只能来自下方“允许使用的原文件摘录”；项目动态页只可用于确认本次进度、交易所和日期。唯一例外是“申报”阶段，可使用项目动态页已经披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。不同文件相互矛盾时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。
-4. 申报且无附件时，只写状态及交易所页面已经披露的事实，不强行补充底层资产、估值或发行安排，也不为了凑字数反复说明“尚未披露”。材料不足时允许一两句短稿；内容多少由可核验事实决定，不为达到固定字数添加空话。
-5. 反馈/问询只概括监管关注的大类主题，通常一至两句，不展开逐项问题；回复反馈优先写估值参数、评估基准日和评估值变化，再概括其他回复；所有比例和金额应交叉核算。材料未给出变化数据时，不得硬写估值变化。
-6. 首发与扩募是项目属性，不是进度。本项目属性由结构化字段明确给出，不得自行判断。扩募项目正文必须明确“扩募”，资产部分只介绍本次新增资产。
-7. 只输出正文，不输出标题、说明、引用列表、页码或Markdown。
+1. 模仿用户提供的《简报示例》：标题由系统另行生成，你只写正文。正文使用金融专业书面语，客观、紧凑、单段呈现，不分点、不写小标题、不使用感叹号。不要写评价、意义、展望或空泛总结。
+2. 第一句只交代本次事件，顺序固定为“日期—交易所—项目简称—本次动作或状态”。第一句不得夹带底层资产、估值、发行数据或历史进度。后续句子再写该阶段允许披露的核心事实。
+3. 正文使用项目简称，不重复基金全称；不写“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，不写基金管理人、专项计划名称或与本次事件无关的流程回顾。
+4. 每个事实只能来自下方“允许使用的原文件摘录”。项目动态页只可确认本次进度、交易所、日期；仅“申报”阶段还可使用项目动态页披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。
+5. 第一事实句之后的每个完整句子都必须提供证据。evidence.claim必须逐字复制该完整句子（可不含末尾句号），不能只截取句中一小段；evidence.quote必须逐字复制同一页原文件中的连续原文。一个句子引用多个文件时，为同一claim分别提供多条证据。
+6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持，计算值只有在公告明确给出或可由同一句列明的数字直接计算时才能写。
+7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
+8. 反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈优先写回复文件明确披露的估值参数、评估基准日和评估值变化，再概括其他回复。文件没有变化数据时不得硬写估值变化。
+9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
+10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
 本条阶段规则：${stageInstruction(record)}`;
 }
@@ -148,16 +160,16 @@ function stageInstruction(record: BriefMaterial) {
       ? '本项目为扩募，只写本次新增资产和本次扩募事项。'
       : '';
   const rules: Record<string, string> = {
-    申报: '按“时间—交易所—已申报—原始权益人”的顺序写；无招募说明书时不写底层资产。',
-    受理: '只依据最新招募说明书，按“时间—获受理—原始权益人—底层资产核心参数”的顺序写。',
+    申报: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已申报’”；项目动态页披露原始权益人时可在同句末尾写明。不得呈现或引用其他文件，不写底层资产。',
+    受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
-      '只依据交易所出具的反馈意见或问询函，概括“时间—监管动作—主要关注主题—其他意见”。',
-    回复反馈: '依据交易所问询和原始权益人回复，写“时间—回复动作—回复文件确有披露的主要变化—其他主要回复”；项目背景也必须来自允许使用的原文件。',
-    注册生效: '只依据最新招募说明书，写“时间—注册生效—本次资产概况”；仅当文件确有前后数据时写估值变化和持有方。',
-    询价: '以询价公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
-    发售: '以发售公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
-    认购结果: '以认购结果公告为主，只有该公告未覆盖时才可用最新招募说明书补充资产信息。',
-    上市: '以上市交易提示性公告为主，可用最新招募说明书、发售公告和认购结果公告交叉补充。',
+      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。后续只能依据交易所出具的反馈意见或问询函，概括主要关注主题和少量其他意见，不使用招募说明书补写资产介绍。',
+    回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。后续以原始权益人的回复文件为事实来源，优先写文件明确披露的关键参数或估值变化，再概括其他主要回复；交易所原函仅用于说明问题背景。',
+    注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
+    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为主，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；仅当询价公告没有资产介绍时，才可用最新招募说明书补充底层资产。',
+    发售: '第一句写日期、交易所、项目简称及“发布基金份额发售公告”。后续以发售公告为主，依次写发售日期、认购价格、份额与配售结构、募集规模；仅在公告没有资产介绍时用最新招募说明书补充底层资产。',
+    认购结果: '第一句写日期、交易所、项目简称及“披露认购申请确认比例结果”。后续以认购结果公告为主，写各类投资者有效认购数量、确认比例或认购倍数及最终募集规模；仅在公告缺少必要项目背景时用最新招募说明书补充。',
+    上市: '第一句写日期、交易所、项目简称及“正式上市”。后续以上市交易提示性公告为主，写交易代码、运作方式、期限、份额、发行价格和募集规模；需要补充时只能使用最新招募说明书、基金份额发售公告和认购申请确认比例结果公告。',
   };
   return `${rules[record.progressType] || '围绕本次最新披露动作和可核验事实撰写。'}${expansion}`;
 }
@@ -179,6 +191,82 @@ function normalizeBrief(value: string) {
     .trim();
 }
 
+export function parseBriefResponse(raw: string, record: BriefMaterial) {
+  let parsed: { brief?: unknown; evidence?: unknown };
+  try {
+    parsed = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+  } catch {
+    throw new Error('invalid_evidence_format');
+  }
+  if (typeof parsed.brief !== 'string' || !Array.isArray(parsed.evidence))
+    throw new Error('invalid_evidence_format');
+  const evidence: BriefEvidence[] = [];
+  for (const item of parsed.evidence) {
+    if (!item || !Number.isInteger(item.fileIndex) ||
+      typeof item.claim !== 'string' || item.claim.length < 6 || item.claim.length > 240 ||
+      typeof item.quote !== 'string' || item.quote.length < 8 || item.quote.length > 240)
+      throw new Error('invalid_evidence_format');
+    if (!parsed.brief.includes(item.claim)) throw new Error('invalid_evidence_claim');
+    const file = record.files[item.fileIndex - 1];
+    if (!file?.content) throw new Error('invalid_evidence_source');
+    const page = findEvidencePage(file.content, item.quote);
+    if (!page) throw new Error('invalid_evidence_source');
+    evidence.push({ fileUrl: file.url, page, claim: item.claim.trim(), quote: item.quote.trim() });
+  }
+  if (record.progressType !== '申报' && !evidence.length)
+    throw new Error('missing_evidence');
+  const brief = normalizeBrief(parsed.brief);
+  validateEvidenceCoverage(brief, evidence, record);
+  return { brief, evidence };
+}
+
+function validateEvidenceCoverage(
+  brief: string,
+  evidence: BriefEvidence[],
+  record: BriefMaterial,
+) {
+  if (record.progressType === '申报') {
+    if (evidence.length) throw new Error('invalid_submission_evidence');
+    return;
+  }
+  const sentences = brief
+    .split('。')
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  for (const sentence of sentences.slice(1)) {
+    if (!evidence.some((item) => normalizeClaim(item.claim) === sentence))
+      throw new Error('missing_evidence_coverage');
+  }
+  for (const item of evidence) {
+    const claim = normalizeClaim(item.claim);
+    if (!sentences.includes(claim)) throw new Error('partial_evidence_claim');
+  }
+  for (const sentence of sentences.slice(1)) {
+    const quotes = evidence
+      .filter((item) => normalizeClaim(item.claim) === sentence)
+      .map((item) => item.quote)
+      .join(' ')
+      .replace(/[,，\s]/g, '');
+    const numbers = sentence.replace(/[,，\s]/g, '').match(/\d+(?:\.\d+)?/g) || [];
+    if (numbers.some((number) => !quotes.includes(number)))
+      throw new Error('evidence_number_mismatch');
+  }
+}
+
+function normalizeClaim(value: string) {
+  return value.trim().replace(/[。；;]$/, '').trim();
+}
+
+function findEvidencePage(content: string, quote: string) {
+  const normalizedQuote = quote.replace(/\s/g, '');
+  for (const part of content.split(/(?=\[第\d+页\])/)) {
+    const page = part.match(/^\[第(\d+)页\]/)?.[1];
+    if (page && part.replace(/\s/g, '').includes(normalizedQuote))
+      return Number(page);
+  }
+  return 0;
+}
+
 export function isCompleteBrief(value: string) {
   return value.trim().endsWith('。');
 }
@@ -189,8 +277,17 @@ export function isBriefDisplayable(value: string, stage: string) {
     (stage !== '反馈/问询' || length <= 280);
 }
 
+export function isCurrentBriefDisplayable(
+  value: string,
+  stage: string,
+  version?: string,
+) {
+  return version === BRIEF_RULES_VERSION && isBriefDisplayable(value, stage);
+}
+
 export function validateBrief(value: string, record: BriefMaterial) {
   if (!isCompleteBrief(value)) throw new Error('incomplete_sentence');
+  validateOpeningSentence(value, record);
   const length = Array.from(value.replace(/\s/g, '')).length;
   const minimum =
     record.progressType === '申报' && record.files.length === 0 ? 25 : 60;
@@ -206,6 +303,31 @@ export function validateBrief(value: string, record: BriefMaterial) {
   if (record.progressType === '反馈/问询' && /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value))
     throw new Error('invalid_format');
   validateNumbers(value, record);
+}
+
+function validateOpeningSentence(value: string, record: BriefMaterial) {
+  const opening = value.split('。', 1)[0];
+  const [, month, day] = record.updateDate.split('-');
+  const date = `${Number(month)}月${Number(day)}日`;
+  if (!opening.startsWith(`${date}，`) || !opening.includes(record.exchange) ||
+    !opening.includes(record.shortName))
+    throw new Error('invalid_opening');
+  const markers: Record<string, RegExp> = {
+    申报: /已申报/,
+    受理: /已受理/,
+    '反馈/问询': /反馈|问询/,
+    回复反馈: /答复|回复/,
+    注册生效: /注册生效/,
+    询价: /询价公告/,
+    发售: /发售公告/,
+    认购结果: /认购申请确认比例|认购结果/,
+    上市: /上市/,
+  };
+  if (!(markers[record.progressType] || /./).test(opening))
+    throw new Error('invalid_opening');
+  if (record.progressType !== '申报' &&
+    /(?:原始权益人|底层资产|评估值|出租率|建筑面积|募集规模|交易代码|存续期限|认购价格|发行价格|询价区间|发售时间|募集期|亿元|万元|平方米|万平方米|元\/份|份|倍|%|％|MW|千瓦时)/.test(opening))
+    throw new Error('opening_contains_details');
 }
 
 function validateNumbers(value: string, record: BriefMaterial) {

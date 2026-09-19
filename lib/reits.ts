@@ -1,5 +1,5 @@
 import type { AppDb } from '@/db';
-import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isBriefDisplayable, needsBriefRegeneration } from '@/lib/deepseek';
+import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isCurrentBriefDisplayable, needsBriefRegeneration, type BriefEvidence } from '@/lib/deepseek';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
 import {
   beginScheduledRefreshRun,
@@ -35,6 +35,7 @@ export type ReitsRecord = {
   weekEnd: string;
   originator?: string;
   brief: string;
+  evidence?: BriefEvidence[];
   briefRulesVersion?: string;
   note?: string;
   files: ReitsFile[];
@@ -48,7 +49,7 @@ const UNPUBLISHED_BRIEF = '本条简报暂未发布：内容正在重新核验�
 
 const SSE_QUERY_ORIGINS = ['https://query.sse.com.cn', 'http://query.sse.com.cn'] as const;
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
-const SSE_BULLETIN_REFERER = 'https://www.sse.com.cn/reits/announcements/';
+const SSE_BULLETIN_REFERER = 'https://www.sse.com.cn/reits/announcements/info/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
 const SSE_ANNOUNCEMENT_BASE = 'https://www.sse.com.cn';
 const SZSE_ORIGINS = ['https://reits.szse.cn', 'http://reits.szse.cn'] as const;
@@ -71,6 +72,7 @@ export const seedRecords: ReitsRecord[] = [
     originator: '晶澳太阳能投资（中国）有限公司;朝阳龙盛太阳能发电有限公司',
     brief:
       '9月10日，深交所网站显示，华安晶澳科技新能源REIT项目状态为“已申报”，原始权益人为晶澳太阳能投资（中国）有限公司、朝阳龙盛太阳能发电有限公司。',
+    briefRulesVersion: BRIEF_RULES_VERSION,
     note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
     sourceUrl:
@@ -93,6 +95,7 @@ export const seedRecords: ReitsRecord[] = [
     originator: '上实城开（上海）房屋租赁有限公司',
     brief:
       '9月10日，上交所网站显示，国泰海通上实租赁住房REIT项目状态为“已申报”，原始权益人为上实城开（上海）房屋租赁有限公司。',
+    briefRulesVersion: BRIEF_RULES_VERSION,
     note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
     sourceUrl:
@@ -115,6 +118,7 @@ export const seedRecords: ReitsRecord[] = [
     originator: '北京京东耀弘管理咨询有限公司',
     brief:
       '9月7日，上交所网站显示，嘉实京东仓储物流REIT扩募项目状态更新为“已反馈”。上交所披露的受理反馈意见主要围绕业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理等方面展开，要求管理人进一步补充说明或充分披露；其他反馈包括扩募条件、共管账户、基金收益水平、信息披露和资产投保情况。',
+    briefRulesVersion: BRIEF_RULES_VERSION,
     files: [
       {
         label: '受理反馈意见原文',
@@ -146,6 +150,7 @@ export const seedRecords: ReitsRecord[] = [
     originator: '中海企业发展集团有限公司',
     brief:
       '9月7日，深交所网站显示，华夏中海商业不动产REIT审核状态为“已申报”，项目原始权益人为中海企业发展集团有限公司。',
+    briefRulesVersion: BRIEF_RULES_VERSION,
     note: '项目详情页暂未披露招募说明书等附件，正式简报不补写底层资产、估值及发行安排。',
     files: [],
     sourceUrl: 'https://reits.szse.cn/projectdynamic/index.html',
@@ -226,7 +231,11 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
       ? rows.results.map(rowToRecord)
       : seedRecordsForRange(start, end)).map((record) => ({
         ...record,
-        brief: isBriefDisplayable(record.brief, record.progressType)
+        brief: isCurrentBriefDisplayable(
+          record.brief,
+          record.progressType,
+          record.briefRulesVersion,
+        )
           ? record.brief
           : UNPUBLISHED_BRIEF,
       })),
@@ -369,6 +378,7 @@ export async function refreshWeek(
           };
           const generated = await generateDeepSeekBrief(generationRecord);
           record.brief = generated.brief;
+          record.evidence = generated.evidence;
           record.briefRulesVersion = BRIEF_RULES_VERSION;
           record.note = undefined;
           generatedCount += 1;
@@ -377,19 +387,30 @@ export async function refreshWeek(
         } catch (error) {
           failedCount += 1;
           briefFailures.add(describeBriefFailure(error));
-          if (existing) {
+          if (
+            existing &&
+            isCurrentBriefDisplayable(
+              existing.brief,
+              existing.progressType,
+              existing.briefRulesVersion,
+            )
+          ) {
             record.brief = existing.brief;
+            record.evidence = existing.evidence;
             record.note = existing.note;
             record.briefRulesVersion = existing.briefRulesVersion;
           } else {
             record.brief = UNPUBLISHED_BRIEF;
-            record.note = '未使用缺失或无法读取的材料生成内容。';
+            record.evidence = [];
+            record.briefRulesVersion = undefined;
+            record.note = '本条未通过现行撰写规则和逐句原文核验，暂不发布。';
           }
         }
       } else if (options.generateBriefs) {
         skippedCount += 1;
         if (existing) {
           record.brief = existing.brief;
+          record.evidence = existing.evidence;
           record.note = existing.note;
           record.briefRulesVersion = existing.briefRulesVersion;
         }
@@ -485,7 +506,7 @@ async function fetchSseRecords(
   const path = '/commonSoaQuery.do?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1';
   const [data, bulletins] = await Promise.all([
     withRetry(() => fetchSseJson<{ result?: SseProject[] }>(path, SSE_REFERER)),
-    fetchSseBulletins(start, end).catch(() => []),
+    fetchSseBulletins(start, end),
   ]);
   const projects = (data.result || []).filter(
     (item) => item.PUBLISH_DATE >= start && item.PUBLISH_DATE <= end,
@@ -750,19 +771,29 @@ async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
 }
 
 async function fetchSseBulletins(start: string, end: string, fundCode = '') {
-  const query = new URLSearchParams({
-    sqlId: 'REITS_BULLETIN',
-    isPagination: 'true',
-    fundCode,
-    startDate: start,
-    endDate: end,
-    'pageHelp.pageSize': '200',
-    'pageHelp.pageNo': '1',
-  });
-  const data = await withRetry(() =>
-    fetchSseJson<{ result?: SseBulletin[] }>(`/commonSoaQuery.do?${query}`, SSE_BULLETIN_REFERER),
-  );
-  return data.result || [];
+  const bulletins: SseBulletin[] = [];
+  for (let pageNo = 1; pageNo <= 100; pageNo += 1) {
+    const query = new URLSearchParams({
+      sqlId: 'REITS_BULLETIN',
+      isPagination: 'true',
+      fundCode,
+      startDate: start,
+      endDate: end,
+      'pageHelp.pageSize': '200',
+      'pageHelp.pageNo': String(pageNo),
+    });
+    const data = await withRetry(() =>
+      fetchSseJson<{ result?: SseBulletin[]; pageHelp?: { pageCount?: number } }>(
+        `/commonSoaQuery.do?${query}`,
+        SSE_BULLETIN_REFERER,
+      ),
+    );
+    if (!Array.isArray(data.result)) throw new Error('上交所REITs公告返回格式异常');
+    bulletins.push(...data.result);
+    if (data.result.length < 200 || (data.pageHelp?.pageCount && pageNo >= data.pageHelp.pageCount))
+      return bulletins;
+  }
+  throw new Error('上交所REITs公告超过分页安全上限');
 }
 
 async function mapSseBulletin(
@@ -772,7 +803,7 @@ async function mapSseBulletin(
   weekEnd: string,
 ): Promise<ReitsRecord> {
   const progressType = announcementStage(bulletin.title)!;
-  const history = await historyPromise.catch(() => [bulletin]);
+  const history = await historyPromise;
   const allFiles = history.map(sseBulletinFile);
   const files = selectStageFiles(progressType, allFiles);
   const offeringType: OfferingType = history.some((item) =>
@@ -827,16 +858,28 @@ async function fetchSzseAnnouncementRecords(
   weekStart: string,
   weekEnd: string,
 ) {
-  const query = new URLSearchParams({
-    type: '4',
-    pageSize: '100',
-    pageNum: '1',
-  });
-  const data = await fetchJson<{ data?: SzseAnnouncement[] }>(
-    `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
-    'https://www.szse.cn/www/reits/disclosure/index.html',
-  ).catch(() => ({ data: [] }));
-  const announcements = (data.data || []).filter((item) => {
+  const all: SzseAnnouncement[] = [];
+  for (let pageNum = 1; pageNum <= 100; pageNum += 1) {
+    const query = new URLSearchParams({
+      type: '4',
+      pageSize: '50',
+      pageNum: String(pageNum),
+    });
+    query.append('seDate[]', weekStart);
+    query.append('seDate[]', weekEnd);
+    const data = await withRetry(() => fetchJson<{ data?: SzseAnnouncement[] }>(
+      `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
+      'https://www.szse.cn/www/reits/disclosure/index.html',
+    ));
+    if (!Array.isArray(data.data)) throw new Error('深交所信息披露返回格式异常');
+    all.push(...data.data);
+    if (data.data.some((item) => item.publishTime.slice(0, 10) > weekEnd))
+      throw new Error('深交所信息披露未按请求日期筛选');
+    if (data.data.length < 50 || data.data.at(-1)!.publishTime.slice(0, 10) < weekStart)
+      break;
+    if (pageNum === 100) throw new Error('深交所信息披露超过分页安全上限');
+  }
+  const announcements = all.filter((item) => {
     const date = item.publishTime.slice(0, 10);
     return (
       date >= weekStart &&
@@ -927,7 +970,7 @@ function buildAnnouncementSourceHtml(
   const fileList = files
     .map((file) => `<mark>${escapeHtml(file.originalTitle)}</mark>`)
     .join('、');
-  return `<h3>内容溯源</h3><p><span class="page-ref">信息披露</span>${exchange}于<mark>${date}</mark>披露<mark>${escapeHtml(title)}</mark>。</p><p><span class="page-ref">本条实际参考文件</span>${fileList}</p>`;
+  return `<h3>内容溯源</h3><p><span class="page-ref">信息披露</span>${exchange}于<mark>${date}</mark>披露<mark>${escapeHtml(title)}</mark>。</p><p><span class="page-ref">可核对原文件</span>${fileList}</p>`;
 }
 
 function extractFundName(title: string) {
@@ -1006,7 +1049,7 @@ function describeBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (/缺少规定原文件/.test(message)) return '规定原文件缺失';
   if (/原文件|PDF/.test(message)) return '原文件下载或PDF读取失败';
-  if (/invalid_|unsupported_|incomplete_|missing_expansion/.test(message))
+  if (/invalid_|unsupported_|incomplete_|missing_evidence|missing_expansion/.test(message))
     return '简报质量校验未通过';
   if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
     return '简报服务暂时不可用';
@@ -1066,6 +1109,7 @@ function rowToRecord(row: Record<string, unknown>): ReitsRecord {
     weekEnd: String(row.week_end),
     originator: row.originator ? String(row.originator) : undefined,
     brief: String(row.brief),
+    evidence: rawRecord(row).evidence,
     note: row.note ? String(row.note) : undefined,
     briefRulesVersion: rawRecord(row).briefRulesVersion,
     files: JSON.parse(String(row.files_json || '[]')),

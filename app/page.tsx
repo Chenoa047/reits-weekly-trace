@@ -11,6 +11,13 @@ type ReitsFile = {
   section?: string;
 };
 
+type BriefEvidence = {
+  fileUrl: string;
+  page: number;
+  claim: string;
+  quote: string;
+};
+
 type ReitsRecord = {
   id: string;
   exchange: '上交所' | '深交所';
@@ -25,6 +32,7 @@ type ReitsRecord = {
   weekEnd: string;
   originator?: string;
   brief: string;
+  evidence?: BriefEvidence[];
   note?: string;
   files: ReitsFile[];
   sourceHtml: string;
@@ -950,6 +958,7 @@ function AdminBlackboardDemo() {
 }
 
 function ComparePanel({ record, onClose }: { record: ReitsRecord; onClose: () => void }) {
+  const evidence = record.evidence || [];
   return (
     <section id={comparePanelId(record.id)} className="border border-[#d8d1cf] bg-white">
       <div className="flex items-center justify-between border-b border-[#d8d1cf] p-5">
@@ -965,7 +974,33 @@ function ComparePanel({ record, onClose }: { record: ReitsRecord; onClose: () =>
           <p>{record.brief}</p>
           {record.note ? <p className="brief-note">补充说明：{record.note}</p> : null}
         </div>
-        <div className="source-frame min-h-[520px] border-l border-[#d8d1cf] p-5" dangerouslySetInnerHTML={{ __html: record.sourceHtml || '<p>暂无结构化原文摘录。</p>' }} />
+        <div className="source-frame min-h-[520px] border-l border-[#d8d1cf] p-5">
+          <h3>原文依据</h3>
+          {record.progressType === '申报' ? (
+            <>
+              <div dangerouslySetInnerHTML={{ __html: record.sourceHtml || '<p>项目动态页暂无结构化摘录。</p>' }} />
+              {record.sourceUrl ? <a className="file-link" href={record.sourceUrl} target="_blank" rel="noreferrer">打开交易所项目详情页</a> : null}
+            </>
+          ) : record.files.length ? (
+            <>
+              {!evidence.length ? <p>这条旧简报尚无可定位的原文证据；请在后台重新抓取生成后核对。</p> : null}
+              {record.files.map((file) => {
+                const quotes = evidence.filter((item) => item.fileUrl === file.url);
+                return <article key={file.url} className="border border-[#ead2d2] bg-white p-4">
+                  <strong className="block text-sm">{file.originalTitle}</strong>
+                  <span className="page-ref">{file.section || '原文件'}</span>
+                  <a className="file-link" href={file.url} target="_blank" rel="noreferrer">打开原文件</a>
+                  {quotes.map((item, index) => <p key={`${item.page}-${index}`} className="mt-3">
+                    <span className="block text-sm font-bold">简报对应：{item.claim}</span>
+                    <a className="file-link" href={`${file.url}#page=${item.page}`} target="_blank" rel="noreferrer">第{item.page}页</a>
+                    <mark>{item.quote}</mark>
+                  </p>)}
+                  {!quotes.length && evidence.length ? <p className="mt-3 text-sm">本条简报未标记引用该文件；仅供补充核对。</p> : null}
+                </article>;
+              })}
+            </>
+          ) : <p>本阶段暂无可核对的原文件。</p>}
+        </div>
       </div>
     </section>
   );

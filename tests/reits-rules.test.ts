@@ -114,3 +114,14 @@ void test('只有四类一级市场公告进入公告阶段', () => {
   assert.equal(announcementStage('某基金上市交易提示性公告'), '上市');
   assert.equal(announcementStage('某基金召开业绩说明会的公告'), null);
 });
+
+void test('交易所信息披露中的四类首发和扩募标题均能识别', () => {
+  const titles = [
+    ['某基金基金份额询价公告', '询价'],
+    ['某REIT：某封闭式基础设施证券投资基金基金份额发售公告', '发售'],
+    ['某REIT扩募：某封闭式基础设施证券投资基金认购申请确认比例结果的公告', '认购结果'],
+    ['某REIT：某封闭式基础设施证券投资基金上市交易提示性公告', '上市'],
+    ['某封闭式基础设施证券投资基金上市交易性提示公告', '上市'],
+  ] as const;
+  for (const [title, stage] of titles) assert.equal(announcementStage(title), stage);
+});
