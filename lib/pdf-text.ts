@@ -29,9 +29,10 @@ async function extractPdfText(url: string) {
     throw new Error('原文件不是 PDF');
   }
 
+  const data = new Uint8Array(await response.arrayBuffer());
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(await response.arrayBuffer()),
+    data: data.slice(),
   });
   const pdf = await loadingTask.promise;
   const pages: string[] = [];
@@ -48,7 +49,10 @@ async function extractPdfText(url: string) {
   }
   await loadingTask.destroy();
   const result = pages.join('\n');
-  if (!result) throw new Error('原文件未解析出可用文字');
+  if (!result) {
+    const { extractPdfTextWithOcr } = await import('./pdf-ocr.ts');
+    return extractPdfTextWithOcr(data, pageCount);
+  }
   return result;
 }
 

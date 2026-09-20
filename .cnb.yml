@@ -27,7 +27,7 @@ main:
       imports: https://cnb.cool/reits-weekly-trace/cmwa-secrets/-/blob/main/reits-refresh.env.yml
       stages:
         - name: refresh-at-09-00-asia-shanghai
-          script: npm ci && npm run refresh
+          script: apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-chi-sim && npm ci && npm run refresh
           timeout: 2h
 
   api_trigger_manual_refresh:
@@ -40,5 +40,5 @@ main:
       imports: https://cnb.cool/reits-weekly-trace/cmwa-secrets/-/blob/main/reits-refresh.env.yml
       stages:
         - name: run-manual-refresh
-          script: npm ci && npm run refresh -- --manual
+          script: apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-chi-sim && npm ci && npm run refresh -- --manual
           timeout: 2h

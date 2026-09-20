@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-20-v5';
+export const BRIEF_RULES_VERSION = '2026-09-20-v6';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -112,7 +112,7 @@ export async function generateDeepSeekBrief(
         extractOutputText(data),
         record,
       );
-      validateBrief(brief, record);
+      validateBrief(brief, record, evidence);
       return { brief, evidence, inputTokens, outputTokens };
     } catch (error) {
       throw preserveBriefUsage(error, inputTokens, outputTokens);
@@ -213,7 +213,7 @@ function stageInstruction(record: BriefMaterial) {
       '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。后续只能依据交易所出具的反馈意见或问询函，概括主要关注主题和少量其他意见，不使用招募说明书补写资产介绍。',
     回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。后续以原始权益人的回复文件为事实来源，优先写文件明确披露的关键参数或估值变化，再概括其他主要回复；交易所原函仅用于说明问题背景。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
-    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为主，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；仅当询价公告没有资产介绍时，才可用最新招募说明书补充底层资产。',
+    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为唯一发行数据依据，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；最新招募说明书只能在询价公告没有资产介绍时补充不含发行数字的底层资产概况。',
     发售: '第一句写日期、交易所、项目简称及“发布基金份额发售公告”。后续以发售公告为主，依次写发售日期、认购价格、份额与配售结构、募集规模；仅在公告没有资产介绍时用最新招募说明书补充底层资产。',
     认购结果: '第一句写日期、交易所、项目简称及“披露认购申请确认比例结果”。后续以认购结果公告为主，写各类投资者有效认购数量、确认比例或认购倍数及最终募集规模；仅在公告缺少必要项目背景时用最新招募说明书补充。',
     上市: '第一句写日期、交易所、项目简称及“正式上市”。后续以上市交易提示性公告为主，写交易代码、运作方式、期限、份额、发行价格和募集规模；需要补充时只能使用最新招募说明书、基金份额发售公告和认购申请确认比例结果公告。',
@@ -277,6 +277,12 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     if (!detailSentences.includes(claim)) continue;
     const file = record.files[item.fileIndex - 1];
     if (!file?.content) continue;
+    if (
+      record.progressType === '询价' &&
+      containsNumber(claim) &&
+      file.kind !== '询价'
+    )
+      continue;
     const page = findEvidencePage(file.content, item.quote);
     if (!page) continue;
     candidateEvidence.push({
@@ -295,9 +301,13 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     const quotes = matches
       .map((item) => item.quote)
       .join(' ')
-      .replace(/[,，\s]/g, '');
+      .normalize('NFKC')
+      .replace(/[,\s]/g, '');
     const numbers =
-      sentence.replace(/[,，\s]/g, '').match(/\d+(?:\.\d+)?/g) || [];
+      sentence
+        .normalize('NFKC')
+        .replace(/[,\s]/g, '')
+        .match(/\d+(?:\.\d+)?/g) || [];
     return numbers.every((number) => quotes.includes(number));
   });
   const opening = canonicalBriefOpening(record);
@@ -351,11 +361,18 @@ function normalizeClaim(value: string) {
     .trim();
 }
 
+function containsNumber(value: string) {
+  return /\d/.test(value.normalize('NFKC'));
+}
+
 function findEvidencePage(content: string, quote: string) {
-  const normalizedQuote = quote.replace(/\s/g, '');
+  const normalizedQuote = quote.normalize('NFKC').replace(/\s/g, '');
   for (const part of content.split(/(?=\[第\d+页\])/)) {
     const page = part.match(/^\[第(\d+)页\]/)?.[1];
-    if (page && part.replace(/\s/g, '').includes(normalizedQuote))
+    if (
+      page &&
+      part.normalize('NFKC').replace(/\s/g, '').includes(normalizedQuote)
+    )
       return Number(page);
   }
   return 0;
@@ -378,7 +395,11 @@ export function isCurrentBriefDisplayable(
   return version === BRIEF_RULES_VERSION && isBriefDisplayable(value, stage);
 }
 
-export function validateBrief(value: string, record: BriefMaterial) {
+export function validateBrief(
+  value: string,
+  record: BriefMaterial,
+  evidence?: BriefEvidence[],
+) {
   if (!isCompleteBrief(value)) throw new Error('incomplete_sentence');
   validateOpeningSentence(value, record);
   const length = Array.from(value.replace(/\s/g, '')).length;
@@ -397,7 +418,7 @@ export function validateBrief(value: string, record: BriefMaterial) {
     /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value)
   )
     throw new Error('invalid_format');
-  validateNumbers(value, record);
+  if (evidence === undefined) validateNumbers(value, record);
 }
 
 function validateOpeningSentence(value: string, record: BriefMaterial) {
@@ -434,15 +455,14 @@ function validateOpeningSentence(value: string, record: BriefMaterial) {
 
 function validateNumbers(value: string, record: BriefMaterial) {
   const source =
-    `${record.progressType === '申报' ? stripHtml(record.sourceHtml) : ''}\n${record.files.map((file) => file.content || '').join('\n')}`.replace(
-      /[,，\s]/g,
-      '',
-    );
+    `${record.progressType === '申报' ? stripHtml(record.sourceHtml) : ''}\n${record.files.map((file) => file.content || '').join('\n')}`
+      .normalize('NFKC')
+      .replace(/[,\s]/g, '');
   const numbers =
     value.match(/\d+(?:\.\d+)?%|\d+(?:\.\d+)?(?:亿|万)?元|\d+(?:\.\d+)?倍/g) ||
     [];
   for (const number of numbers) {
-    if (!source.includes(number.replace(/[,，\s]/g, '')))
+    if (!source.includes(number.normalize('NFKC').replace(/[,\s]/g, '')))
       throw new Error('unsupported_number');
   }
 }

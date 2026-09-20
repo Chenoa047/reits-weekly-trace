@@ -367,6 +367,67 @@ void test('事实句中的数字必须由该句绑定的原文证据支持', () 
   );
 });
 
+void test('询价阶段的数字只接受询价公告证据', () => {
+  const record = {
+    ...submission,
+    progressType: '询价',
+    status: '询价',
+    files: [
+      {
+        label: '询价公告',
+        url: 'https://example.com/pricing.pdf',
+        kind: '询价',
+        originalTitle: '基金份额询价公告',
+        content: '[第3页] 本次询价区间为2.300元/份至2.500元/份。',
+      },
+      {
+        label: '招募说明书',
+        url: 'https://example.com/prospectus.pdf',
+        kind: '招募说明书',
+        originalTitle: '招募说明书',
+        content: '[第8页] 预计发行价格为2.400元/份。',
+      },
+    ],
+  };
+  const claim = '询价公告披露，本次询价区间为2.300元/份至2.500元/份';
+  const brief = `9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。${claim}。`;
+  assert.deepEqual(
+    parseBriefResponse(
+      JSON.stringify({
+        brief,
+        evidence: [
+          {
+            claim,
+            fileIndex: 2,
+            quote: '预计发行价格为2.400元/份。',
+          },
+        ],
+      }),
+      record,
+    ),
+    {
+      brief: '9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。',
+      evidence: [],
+    },
+  );
+  assert.equal(
+    parseBriefResponse(
+      JSON.stringify({
+        brief,
+        evidence: [
+          {
+            claim,
+            fileIndex: 1,
+            quote: '本次询价区间为2.300元/份至2.500元/份。',
+          },
+        ],
+      }),
+      record,
+    ).brief,
+    brief,
+  );
+});
+
 void test('首句必须包含日期交易所项目简称和本次动作', () => {
   assert.throws(
     () =>
