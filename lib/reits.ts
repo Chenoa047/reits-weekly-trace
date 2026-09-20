@@ -1,6 +1,13 @@
 import type { AppDb } from '@/db';
 import { briefFailureUsage, describeBriefFailure } from '@/lib/brief-failure';
-import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isCurrentBriefDisplayable, needsBriefRegeneration, type BriefEvidence } from '@/lib/deepseek';
+import {
+  BRIEF_RULES_VERSION,
+  canonicalBrief,
+  generateDeepSeekBrief,
+  isCurrentBriefDisplayable,
+  needsBriefRegeneration,
+  type BriefEvidence,
+} from '@/lib/deepseek';
 import { describeFetchError } from '@/lib/fetch-error';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
 import {
@@ -49,7 +56,10 @@ export type ReitsRecord = {
 type D1 = AppDb;
 const UNPUBLISHED_BRIEF = '本条简报暂未发布：内容正在重新核验。';
 
-const SSE_QUERY_ORIGINS = ['https://query.sse.com.cn', 'http://query.sse.com.cn'] as const;
+const SSE_QUERY_ORIGINS = [
+  'https://query.sse.com.cn',
+  'http://query.sse.com.cn',
+] as const;
 const SSE_REFERER = 'https://www.sse.com.cn/reits/info/';
 const SSE_BULLETIN_REFERER = 'https://www.sse.com.cn/reits/announcements/info/';
 const SSE_FILE_BASE = 'https://static.sse.com.cn/bond';
@@ -231,16 +241,17 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
     range: { start, end },
     records: (rows.results.length
       ? rows.results.map(rowToRecord)
-      : seedRecordsForRange(start, end)).map((record) => ({
-        ...record,
-        brief: isCurrentBriefDisplayable(
-          record.brief,
-          record.progressType,
-          record.briefRulesVersion,
-        )
-          ? record.brief
-          : UNPUBLISHED_BRIEF,
-      })),
+      : seedRecordsForRange(start, end)
+    ).map((record) => ({
+      ...record,
+      brief: isCurrentBriefDisplayable(
+        record.brief,
+        record.progressType,
+        record.briefRulesVersion,
+      )
+        ? record.brief
+        : UNPUBLISHED_BRIEF,
+    })),
   };
 }
 
@@ -325,10 +336,14 @@ export async function refreshWeek(
   let runId = options.runId;
   if (runId) {
     const started = await startQueuedRefreshRun(db, runId);
-    if (!started) throw new Error('手动抓取任务不存在、已经执行，或被其他任务占用。');
+    if (!started)
+      throw new Error('手动抓取任务不存在、已经执行，或被其他任务占用。');
   } else {
     const started = await beginScheduledRefreshRun(db, { start, end });
-    if (!started.ok) throw new Error(`已有抓取任务正在运行${started.active?.id ? `（${started.active.id}）` : ''}。`);
+    if (!started.ok)
+      throw new Error(
+        `已有抓取任务正在运行${started.active?.id ? `（${started.active.id}）` : ''}。`,
+      );
     runId = started.runId;
   }
 
@@ -336,8 +351,9 @@ export async function refreshWeek(
   let sseCount = 0;
   let szseCount = 0;
   let generatedCount = 0;
+  let progressOnlyCount = 0;
   let skippedCount = 0;
-  let failedCount = 0;
+  const failedCount = 0;
   const briefFailures = new Map<string, number>();
   let inputTokens = 0;
   let outputTokens = 0;
@@ -362,7 +378,7 @@ export async function refreshWeek(
       const existing = await findRecord(db, record.id);
       const shouldGenerate = Boolean(
         options.generateBriefs &&
-          needsBriefRegeneration(existing, record, options.forceGenerate),
+        needsBriefRegeneration(existing, record, options.forceGenerate),
       );
       if (shouldGenerate) {
         try {
@@ -395,30 +411,16 @@ export async function refreshWeek(
           inputTokens += generated.inputTokens;
           outputTokens += generated.outputTokens;
         } catch (error) {
-          failedCount += 1;
           const failedUsage = briefFailureUsage(error);
           inputTokens += failedUsage.inputTokens;
           outputTokens += failedUsage.outputTokens;
           const reason = describeBriefFailure(error);
           briefFailures.set(reason, (briefFailures.get(reason) || 0) + 1);
-          if (
-            existing &&
-            isCurrentBriefDisplayable(
-              existing.brief,
-              existing.progressType,
-              existing.briefRulesVersion,
-            )
-          ) {
-            record.brief = existing.brief;
-            record.evidence = existing.evidence;
-            record.note = existing.note;
-            record.briefRulesVersion = existing.briefRulesVersion;
-          } else {
-            record.brief = UNPUBLISHED_BRIEF;
-            record.evidence = [];
-            record.briefRulesVersion = undefined;
-            record.note = '本条未通过现行撰写规则和逐句原文核验，暂不发布。';
-          }
+          record.brief = canonicalBrief(record);
+          record.evidence = [];
+          record.briefRulesVersion = BRIEF_RULES_VERSION;
+          record.note = `本条仅发布交易所确认的项目进度；扩展事实未发布，原因：${reason}。`;
+          progressOnlyCount += 1;
         }
       } else if (options.generateBriefs) {
         skippedCount += 1;
@@ -432,7 +434,7 @@ export async function refreshWeek(
       await upsertRecord(db, record);
     }
     const aiMessage = options.generateBriefs
-      ? `；简报完成 ${generatedCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（${[...briefFailures].map(([reason, count]) => `${reason} ${count} 条`).join('、')}）` : ''}，DeepSeek 输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
+      ? `；完整简报 ${generatedCount} 条、仅发布进度 ${progressOnlyCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（仅发布进度原因：${[...briefFailures].map(([reason, count]) => `${reason} ${count} 条`).join('、')}）` : ''}，DeepSeek 输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
     const sseMessage =
       sseResult.status === 'fulfilled'
@@ -442,11 +444,17 @@ export async function refreshWeek(
       szseResult.status === 'fulfilled'
         ? `深交所抓取 ${szseCount} 条${szseResult.value.warning ? `（${szseResult.value.warning}）` : ''}`
         : `深交所抓取失败，本次保留已有数据（${describeFetchError(szseResult.reason)}）`;
-    runStatus = failedCount && !generatedCount && !skippedCount
-      ? 'failed'
-      : sseResult.status === 'rejected' || szseResult.status === 'rejected' || failedCount
-        ? 'partial'
-        : 'ok';
+    runStatus =
+      failedCount && !generatedCount && !progressOnlyCount && !skippedCount
+        ? 'failed'
+        : sseResult.status === 'rejected' ||
+            szseResult.status === 'rejected' ||
+            (szseResult.status === 'fulfilled' &&
+              Boolean(szseResult.value.warning)) ||
+            failedCount ||
+            progressOnlyCount
+          ? 'partial'
+          : 'ok';
     message = `${triggerLabel}：${sseMessage}；${szseMessage}${aiMessage}。`;
     await finishRefreshRun(db, runId, {
       status: runStatus,
@@ -472,6 +480,7 @@ export async function refreshWeek(
     sseCount,
     szseCount,
     generatedCount,
+    progressOnlyCount,
     skippedCount,
     failedCount,
     inputTokens,
@@ -517,7 +526,8 @@ async function fetchSseRecords(
   start: string,
   end: string,
 ): Promise<ReitsRecord[]> {
-  const path = '/commonSoaQuery.do?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1';
+  const path =
+    '/commonSoaQuery.do?isPagination=true&bond_type=4&sqlId=ZQ_XMLB&pageHelp.pageSize=50&pageHelp.cacheSize=1&pageHelp.pageNo=1&pageHelp.beginPage=1';
   const [data, bulletins] = await Promise.all([
     withRetry(() => fetchSseJson<{ result?: SseProject[] }>(path, SSE_REFERER)),
     fetchSseBulletins(start, end),
@@ -569,7 +579,9 @@ async function withRetry<T>(work: () => Promise<T>, attempts = 3): Promise<T> {
 
 async function fetchSzseRecords(start: string, end: string) {
   const listResults = await Promise.allSettled(
-    ([21, 23] as const).map((bizType) => fetchSzseProjectList(bizType)),
+    ([21, 23] as const).map((bizType) =>
+      withRetry(() => fetchSzseProjectList(bizType)),
+    ),
   );
   const succeeded = listResults.filter(
     (result): result is PromiseFulfilledResult<SzseProjectWithOffering[]> =>
@@ -588,25 +600,42 @@ async function fetchSzseRecords(start: string, end: string) {
   const projects = allProjects.filter(
     ({ project }) => project.updtdt >= start && project.updtdt <= end,
   );
-  const projectRecords = await Promise.all(
+  const projectResults = await Promise.allSettled(
     projects.map(({ project, offeringType }) =>
-      mapSzseProject(project, offeringType, start, end),
+      withRetry(() => mapSzseProject(project, offeringType, start, end)),
     ),
   );
-  const announcementRecords = await fetchSzseAnnouncementRecords(
-    allProjects,
-    start,
-    end,
-  );
-  const failedKinds = listResults
+  const projectRecords = projectResults
+    .filter(
+      (result): result is PromiseFulfilledResult<ReitsRecord> =>
+        result.status === 'fulfilled',
+    )
+    .map((result) => result.value);
+  const announcementResult = await Promise.allSettled([
+    withRetry(() => fetchSzseAnnouncementRecords(allProjects, start, end)),
+  ]);
+  const announcementRecords =
+    announcementResult[0].status === 'fulfilled'
+      ? announcementResult[0].value
+      : [];
+  const failedDetails = projectResults.filter(
+    (result) => result.status === 'rejected',
+  ).length;
+  const failedKinds: string[] = listResults
     .map((result, index) =>
       result.status === 'rejected'
         ? index === 0
-          ? '首发列表失败'
-          : '新购入项目列表失败'
+          ? '首发列表失败，已保留扩募列表数据'
+          : '扩募列表失败，已保留首发列表数据'
         : '',
     )
     .filter(Boolean);
+  if (failedDetails)
+    failedKinds.push(`项目详情失败 ${failedDetails} 条，已保留其余成功数据`);
+  if (announcementResult[0].status === 'rejected')
+    failedKinds.push(
+      `信息披露抓取失败，已保留项目动态数据（${describeFetchError(announcementResult[0].reason)}）`,
+    );
   return {
     records: [...projectRecords, ...announcementRecords],
     warning: failedKinds.join('、'),
@@ -761,7 +790,8 @@ async function mapSseProject(
 async function fetchSseFiles(auditId: string): Promise<ReitsFile[]> {
   const path = `/commonSoaQuery.do?isPagination=false&audit_id=${encodeURIComponent(auditId)}&sqlId=ZQ_GGJG`;
   const data = await fetchSseJson<{ result?: SseFile[] }>(path, SSE_REFERER);
-  if (!Array.isArray(data.result)) throw new Error('上交所项目附件返回格式异常');
+  if (!Array.isArray(data.result))
+    throw new Error('上交所项目附件返回格式异常');
   return data.result.map((file) => {
     const kind = classifyDocument(file.FILE_TITLE);
     return {
@@ -797,14 +827,18 @@ async function fetchSseBulletins(start: string, end: string, fundCode = '') {
       'pageHelp.pageNo': String(pageNo),
     });
     const data = await withRetry(() =>
-      fetchSseJson<{ result?: SseBulletin[]; pageHelp?: { pageCount?: number } }>(
-        `/commonSoaQuery.do?${query}`,
-        SSE_BULLETIN_REFERER,
-      ),
+      fetchSseJson<{
+        result?: SseBulletin[];
+        pageHelp?: { pageCount?: number };
+      }>(`/commonSoaQuery.do?${query}`, SSE_BULLETIN_REFERER),
     );
-    if (!Array.isArray(data.result)) throw new Error('上交所REITs公告返回格式异常');
+    if (!Array.isArray(data.result))
+      throw new Error('上交所REITs公告返回格式异常');
     bulletins.push(...data.result);
-    if (data.result.length < 200 || (data.pageHelp?.pageCount && pageNo >= data.pageHelp.pageCount))
+    if (
+      data.result.length < 200 ||
+      (data.pageHelp?.pageCount && pageNo >= data.pageHelp.pageCount)
+    )
       return bulletins;
   }
   throw new Error('上交所REITs公告超过分页安全上限');
@@ -881,15 +915,21 @@ async function fetchSzseAnnouncementRecords(
     });
     query.append('seDate[]', weekStart);
     query.append('seDate[]', weekEnd);
-    const data = await withRetry(() => fetchJson<{ data?: SzseAnnouncement[] }>(
-      `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
-      'https://www.szse.cn/www/reits/disclosure/index.html',
-    ));
-    if (!Array.isArray(data.data)) throw new Error('深交所信息披露返回格式异常');
+    const data = await withRetry(() =>
+      fetchJson<{ data?: SzseAnnouncement[] }>(
+        `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
+        'https://www.szse.cn/www/reits/disclosure/index.html',
+      ),
+    );
+    if (!Array.isArray(data.data))
+      throw new Error('深交所信息披露返回格式异常');
     all.push(...data.data);
     if (data.data.some((item) => item.publishTime.slice(0, 10) > weekEnd))
       throw new Error('深交所信息披露未按请求日期筛选');
-    if (data.data.length < 50 || data.data.at(-1)!.publishTime.slice(0, 10) < weekStart)
+    if (
+      data.data.length < 50 ||
+      data.data.at(-1)!.publishTime.slice(0, 10) < weekStart
+    )
       break;
     if (pageNum === 100) throw new Error('深交所信息披露超过分页安全上限');
   }
@@ -1025,7 +1065,9 @@ async function fetchSseJson<T>(path: string, referer: string): Promise<T> {
     try {
       return await fetchJson<T>(`${origin}${path}`, referer);
     } catch (error) {
-      failures.push(`${origin.startsWith('https:') ? 'HTTPS' : 'HTTP'} ${describeFetchError(error)}`);
+      failures.push(
+        `${origin.startsWith('https:') ? 'HTTPS' : 'HTTP'} ${describeFetchError(error)}`,
+      );
     }
   }
   throw new Error([...new Set(failures)].join('、'));

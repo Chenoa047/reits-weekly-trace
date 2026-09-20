@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-19-v3';
+export const BRIEF_RULES_VERSION = '2026-09-20-v4';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -57,7 +57,7 @@ export async function generateDeepSeekBrief(
         model: 'deepseek-flash',
         reasoning: { effort: 'none' },
         temperature: 0.2,
-        max_output_tokens: 3200,
+        max_output_tokens: 6400,
         text: {
           format: {
             type: 'json_schema',
@@ -149,10 +149,13 @@ export function needsBriefRegeneration(
   incoming: BriefMaterial,
   force = false,
 ) {
-  return force || !existing ||
+  return (
+    force ||
+    !existing ||
     existing.briefRulesVersion !== BRIEF_RULES_VERSION ||
     sourceSignature(existing) !== sourceSignature(incoming) ||
-    !isBriefDisplayable(existing.brief, incoming.progressType);
+    !isBriefDisplayable(existing.brief, incoming.progressType)
+  );
 }
 
 function buildInstructions(record: BriefMaterial) {
@@ -238,67 +241,114 @@ function normalizeBrief(value: string) {
 export function parseBriefResponse(raw: string, record: BriefMaterial) {
   let parsed: { brief?: unknown; evidence?: unknown };
   try {
-    parsed = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+    parsed = JSON.parse(
+      raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, ''),
+    );
   } catch {
-    throw new Error('invalid_evidence_format');
+    return { brief: canonicalBrief(record), evidence: [] };
   }
   if (typeof parsed.brief !== 'string' || !Array.isArray(parsed.evidence))
-    throw new Error('invalid_evidence_format');
-  const evidence: BriefEvidence[] = [];
-  for (const item of parsed.evidence) {
-    if (!item || !Number.isInteger(item.fileIndex) ||
-      typeof item.claim !== 'string' || item.claim.length < 6 || item.claim.length > 240 ||
-      typeof item.quote !== 'string' || item.quote.length < 8 || item.quote.length > 240)
-      throw new Error('invalid_evidence_format');
-    if (!parsed.brief.includes(item.claim)) throw new Error('invalid_evidence_claim');
-    const file = record.files[item.fileIndex - 1];
-    if (!file?.content) throw new Error('invalid_evidence_source');
-    const page = findEvidencePage(file.content, item.quote);
-    if (!page) throw new Error('invalid_evidence_source');
-    evidence.push({ fileUrl: file.url, page, claim: item.claim.trim(), quote: item.quote.trim() });
-  }
-  if (record.progressType !== '申报' && !evidence.length)
-    throw new Error('missing_evidence');
-  const brief = normalizeBrief(parsed.brief);
-  validateEvidenceCoverage(brief, evidence, record);
-  return { brief, evidence };
-}
+    return { brief: canonicalBrief(record), evidence: [] };
+  if (record.progressType === '申报')
+    return { brief: canonicalBrief(record), evidence: [] };
 
-function validateEvidenceCoverage(
-  brief: string,
-  evidence: BriefEvidence[],
-  record: BriefMaterial,
-) {
-  if (record.progressType === '申报') {
-    if (evidence.length) throw new Error('invalid_submission_evidence');
-    return;
-  }
-  const sentences = brief
+  const modelSentences = normalizeBrief(parsed.brief)
     .split('。')
     .map((sentence) => sentence.trim())
     .filter(Boolean);
-  for (const sentence of sentences.slice(1)) {
-    if (!evidence.some((item) => normalizeClaim(item.claim) === sentence))
-      throw new Error('missing_evidence_coverage');
-  }
-  for (const item of evidence) {
+  const detailSentences = modelSentences.slice(1);
+  const candidateEvidence: BriefEvidence[] = [];
+  for (const item of parsed.evidence) {
+    if (
+      !item ||
+      !Number.isInteger(item.fileIndex) ||
+      typeof item.claim !== 'string' ||
+      item.claim.length < 6 ||
+      item.claim.length > 240 ||
+      typeof item.quote !== 'string' ||
+      item.quote.length < 8 ||
+      item.quote.length > 240
+    )
+      continue;
     const claim = normalizeClaim(item.claim);
-    if (!sentences.includes(claim)) throw new Error('partial_evidence_claim');
+    if (!detailSentences.includes(claim)) continue;
+    const file = record.files[item.fileIndex - 1];
+    if (!file?.content) continue;
+    const page = findEvidencePage(file.content, item.quote);
+    if (!page) continue;
+    candidateEvidence.push({
+      fileUrl: file.url,
+      page,
+      claim,
+      quote: item.quote.trim(),
+    });
   }
-  for (const sentence of sentences.slice(1)) {
-    const quotes = evidence
-      .filter((item) => normalizeClaim(item.claim) === sentence)
+
+  const safeSentences = detailSentences.filter((sentence) => {
+    const matches = candidateEvidence.filter(
+      (item) => normalizeClaim(item.claim) === sentence,
+    );
+    if (!matches.length) return false;
+    const quotes = matches
       .map((item) => item.quote)
       .join(' ')
       .replace(/[,，\s]/g, '');
-    const numbers = sentence.replace(/[,，\s]/g, '').match(/\d+(?:\.\d+)?/g) || [];
-    if (numbers.some((number) => !quotes.includes(number)))
-      throw new Error('evidence_number_mismatch');
+    const numbers =
+      sentence.replace(/[,，\s]/g, '').match(/\d+(?:\.\d+)?/g) || [];
+    return numbers.every((number) => quotes.includes(number));
+  });
+  const opening = canonicalBriefOpening(record);
+  const maximum = record.progressType === '反馈/问询' ? 280 : 400;
+  const keptSentences: string[] = [];
+  for (const sentence of safeSentences) {
+    const next = `${opening}。${[...keptSentences, sentence].join('。')}。`;
+    if (Array.from(next.replace(/\s/g, '')).length <= maximum)
+      keptSentences.push(sentence);
   }
+  const kept = new Set(keptSentences);
+  const evidence = candidateEvidence.filter((item) => kept.has(item.claim));
+  const brief = `${opening}${keptSentences.length ? `。${keptSentences.join('。')}` : ''}。`;
+  return { brief, evidence };
+}
+
+export function canonicalBrief(record: BriefMaterial) {
+  return `${canonicalBriefOpening(record)}。`;
+}
+
+export function canonicalBriefOpening(record: BriefMaterial) {
+  const [, month, day] = record.updateDate.split('-');
+  const date = `${Number(month)}月${Number(day)}日`;
+  const expansion = record.offeringType === '扩募' ? '扩募' : '';
+  const prefix = `${date}，${record.exchange}网站显示，${record.shortName}${expansion}项目`;
+  const actions: Record<string, string> = {
+    申报: '状态为“已申报”',
+    受理: '状态为“已受理”',
+    '反馈/问询': record.exchange === '深交所' ? '获审核问询' : '获反馈',
+    回复反馈:
+      record.exchange === '深交所'
+        ? '就审核问询函进行了答复'
+        : '就反馈意见进行了答复',
+    注册生效: '状态变更为“注册生效”',
+    询价: '发布基金份额询价公告',
+    发售: '发布基金份额发售公告',
+    认购结果: '披露认购申请确认比例结果',
+    上市: '正式上市',
+  };
+  const originator =
+    record.progressType === '申报' && record.originator
+      ? `，原始权益人为${record.originator.replace(/[;；]/g, '、')}`
+      : '';
+  return `${prefix}${actions[record.progressType] || `状态更新为“${record.status}”`}${originator}`;
 }
 
 function normalizeClaim(value: string) {
-  return value.trim().replace(/[。；;]$/, '').trim();
+  return value
+    .trim()
+    .replace(/[。；;]$/, '')
+    .trim();
 }
 
 function findEvidencePage(content: string, quote: string) {
@@ -317,8 +367,7 @@ export function isCompleteBrief(value: string) {
 
 export function isBriefDisplayable(value: string, stage: string) {
   const length = Array.from(value.replace(/\s/g, '')).length;
-  return isCompleteBrief(value) &&
-    (stage !== '反馈/问询' || length <= 280);
+  return isCompleteBrief(value) && (stage !== '反馈/问询' || length <= 280);
 }
 
 export function isCurrentBriefDisplayable(
@@ -333,8 +382,7 @@ export function validateBrief(value: string, record: BriefMaterial) {
   if (!isCompleteBrief(value)) throw new Error('incomplete_sentence');
   validateOpeningSentence(value, record);
   const length = Array.from(value.replace(/\s/g, '')).length;
-  const minimum =
-    record.progressType === '申报' && record.files.length === 0 ? 25 : 60;
+  const minimum = 25;
   const maximum = record.progressType === '反馈/问询' ? 280 : 400;
   if (length < minimum || length > maximum) throw new Error('invalid_length');
   if (/[!！]/.test(value)) throw new Error('invalid_format');
@@ -344,7 +392,10 @@ export function validateBrief(value: string, record: BriefMaterial) {
     throw new Error('invalid_meta_content');
   if (record.offeringType === '扩募' && !value.includes('扩募'))
     throw new Error('missing_expansion_label');
-  if (record.progressType === '反馈/问询' && /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value))
+  if (
+    record.progressType === '反馈/问询' &&
+    /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value)
+  )
     throw new Error('invalid_format');
   validateNumbers(value, record);
 }
@@ -353,8 +404,11 @@ function validateOpeningSentence(value: string, record: BriefMaterial) {
   const opening = value.split('。', 1)[0];
   const [, month, day] = record.updateDate.split('-');
   const date = `${Number(month)}月${Number(day)}日`;
-  if (!opening.startsWith(`${date}，`) || !opening.includes(record.exchange) ||
-    !opening.includes(record.shortName))
+  if (
+    !opening.startsWith(`${date}，`) ||
+    !opening.includes(record.exchange) ||
+    !opening.includes(record.shortName)
+  )
     throw new Error('invalid_opening');
   const markers: Record<string, RegExp> = {
     申报: /已申报/,
@@ -369,8 +423,12 @@ function validateOpeningSentence(value: string, record: BriefMaterial) {
   };
   if (!(markers[record.progressType] || /./).test(opening))
     throw new Error('invalid_opening');
-  if (record.progressType !== '申报' &&
-    /(?:原始权益人|底层资产|评估值|出租率|建筑面积|募集规模|交易代码|存续期限|认购价格|发行价格|询价区间|发售时间|募集期|亿元|万元|平方米|万平方米|元\/份|份|倍|%|％|MW|千瓦时)/.test(opening))
+  if (
+    record.progressType !== '申报' &&
+    /(?:原始权益人|底层资产|评估值|出租率|建筑面积|募集规模|交易代码|存续期限|认购价格|发行价格|询价区间|发售时间|募集期|亿元|万元|平方米|万平方米|元\/份|份|倍|%|％|MW|千瓦时)/.test(
+      opening,
+    )
+  )
     throw new Error('opening_contains_details');
 }
 
@@ -415,7 +473,9 @@ function numberValue(value: unknown) {
 
 type DeepSeekResponse = {
   status?: string;
-  incomplete_details?: { reason?: 'max_output_tokens' | 'content_filter' } | null;
+  incomplete_details?: {
+    reason?: 'max_output_tokens' | 'content_filter';
+  } | null;
   output_text?: string;
   output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
   usage?: { input_tokens?: number; output_tokens?: number };
