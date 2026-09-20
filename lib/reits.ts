@@ -28,6 +28,10 @@ import {
   type OfferingType,
   type ReitsSourceFile,
 } from '@/lib/reits-rules';
+import {
+  firstSzseAnnouncementValue,
+  szseAnnouncementHistoryBody,
+} from '@/lib/szse-announcements';
 
 export type ReitsFile = ReitsSourceFile;
 
@@ -915,29 +919,17 @@ async function fetchSzseAnnouncementRecords(
 ) {
   const all: SzseAnnouncement[] = [];
   for (let pageNum = 1; pageNum <= 100; pageNum += 1) {
-    const query = new URLSearchParams({
-      type: '4',
-      pageSize: '50',
-      pageNum: String(pageNum),
-    });
-    query.append('seDate[]', weekStart);
-    query.append('seDate[]', weekEnd);
     const data = await withRetry(() =>
-      fetchJson<{ data?: SzseAnnouncement[] }>(
-        `https://www.szse.cn/api/disc/info/find/tannInfo?${query}`,
-        'https://www.szse.cn/www/reits/disclosure/index.html',
+      postJson<{ announceCount?: number; data?: SzseAnnouncement[] }>(
+        'https://www.szse.cn/api/disc/announcement/annList',
+        'https://reits.szse.cn/disclosure/',
+        szseAnnouncementHistoryBody(weekStart, weekEnd, pageNum),
       ),
     );
     if (!Array.isArray(data.data))
       throw new Error('深交所信息披露返回格式异常');
     all.push(...data.data);
-    if (data.data.some((item) => item.publishTime.slice(0, 10) > weekEnd))
-      throw new Error('深交所信息披露未按请求日期筛选');
-    if (
-      data.data.length < 50 ||
-      data.data.at(-1)!.publishTime.slice(0, 10) < weekStart
-    )
-      break;
+    if (data.data.length < 50 || all.length >= (data.announceCount || 0)) break;
     if (pageNum === 100) throw new Error('深交所信息披露超过分页安全上限');
   }
   const announcements = all.filter((item) => {
@@ -979,7 +971,8 @@ async function mapSzseAnnouncement(
     matched?.offeringType ||
     (/扩募|新购入不动产/.test(announcement.title) ? '扩募' : '首发');
   const shortName = clean(
-    announcement.secName || briefName(extractFundName(announcement.title)),
+    firstSzseAnnouncementValue(announcement.secName) ||
+      briefName(extractFundName(announcement.title)),
   );
   const updateDate = announcement.publishTime.slice(0, 10);
   return {
@@ -999,7 +992,7 @@ async function mapSzseAnnouncement(
       : undefined,
     brief: `${displayDate(updateDate)}，${shortName}在深交所披露《${announcement.title}》。`,
     files,
-    sourceUrl: 'https://reits.szse.cn/disclosure/',
+    sourceUrl: `https://reits.szse.cn/disclosure/notice/index.html?${announcement.id}`,
     sourceHtml: buildAnnouncementSourceHtml(
       '深交所',
       announcement.title,
@@ -1060,6 +1053,24 @@ async function fetchJson<T>(url: string, referer: string): Promise<T> {
       'user-agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
     },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`交易所接口返回 ${response.status}`);
+  return (await response.json()) as T;
+}
+
+async function postJson<T>(url: string, referer: string, body: unknown) {
+  const response = await fetch(url, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      accept: 'application/json, text/plain, */*',
+      'content-type': 'application/json',
+      referer,
+      'user-agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+    },
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) throw new Error(`交易所接口返回 ${response.status}`);
@@ -1293,8 +1304,8 @@ type SzseAnnouncement = {
   title: string;
   publishTime: string;
   attachPath: string;
-  secCode: string;
-  secName: string;
+  secCode: string | string[];
+  secName: string | string[];
 };
 
 type SzseProjectDetail = {

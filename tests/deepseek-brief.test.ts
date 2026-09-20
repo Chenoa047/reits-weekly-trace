@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BRIEF_RULES_VERSION,
+  buildExchangeQuestionFallback,
   generateDeepSeekBrief,
   isBriefDisplayable,
   isCurrentBriefDisplayable,
@@ -67,6 +68,77 @@ void test('反馈意见不能写成长篇逐项罗列', () => {
   const verbose = `9月15日，上交所就某REIT申请出具反馈意见，重点关注资产合规、估值和信息披露。${'交易所要求逐项补充说明资产权属、运营情况及各项财务指标。'.repeat(15)}`;
   assert.throws(() => validateBrief(verbose, feedback), /invalid_length/);
   assert.equal(isBriefDisplayable(verbose, '反馈/问询'), false);
+});
+
+void test('深交所问询与上交所反馈使用同一主题结构生成可核验保底简报', () => {
+  const record = {
+    ...submission,
+    exchange: '深交所',
+    shortName: '中金中国绿发REIT',
+    status: '已问询',
+    updateDate: '2026-09-18',
+    progressType: '反馈/问询',
+    files: [
+      {
+        label: '审核问询函原文',
+        url: 'https://example.com/question.pdf',
+        kind: '问询函',
+        originalTitle: '关于中金中国绿发REIT申请文件的审核问询函',
+        issuerRole: '交易所',
+        content:
+          '[第1页] 一、业务参与人资质及履职能力\n[第3页] 二、不动产合规情况\n[第6页] 三、项目经营与财务情况\n[第12页] 四、不动产估值\n[第13页] 五、基金运作与治理',
+      },
+    ],
+  };
+  const result = buildExchangeQuestionFallback(record);
+  assert.ok(result);
+  assert.equal(
+    result.brief,
+    '9月18日，深交所网站显示，中金中国绿发REIT项目获审核问询。审核问询函主要围绕业务参与人资质及履职能力、不动产项目合规性、项目经营与财务情况、资产评估与估值合理性、基金运作与治理机制等方面展开，要求进一步补充说明或充分披露。',
+  );
+  assert.deepEqual(
+    result.evidence.map((item) => item.page),
+    [1, 3, 6, 12, 13],
+  );
+});
+
+void test('问询简报服务连续不可用时仍发布基于交易所原函的保底正文', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_API_KEY = 'non-secret-test-placeholder';
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response('unavailable', { status: 503 });
+  };
+  try {
+    const result = await generateDeepSeekBrief({
+      ...submission,
+      exchange: '深交所',
+      shortName: '中金中国绿发REIT',
+      status: '已问询',
+      updateDate: '2026-09-18',
+      progressType: '反馈/问询',
+      files: [
+        {
+          label: '审核问询函原文',
+          url: 'https://example.com/question.pdf',
+          kind: '问询函',
+          originalTitle: '审核问询函',
+          issuerRole: '交易所',
+          content:
+            '[第1页] 一、业务参与人资质及履职能力\n[第3页] 二、不动产合规情况\n[第6页] 三、项目经营与财务情况\n[第12页] 四、不动产估值\n[第13页] 五、基金运作与治理',
+        },
+      ],
+    });
+    assert.equal(calls, 2);
+    assert.match(result.brief, /审核问询函主要围绕业务参与人资质及履职能力/);
+    assert.equal(result.evidence.length, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = originalKey;
+  }
 });
 
 void test('已受理简报的数字不能仅来自项目动态页', () => {

@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-20-v9';
+export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -42,7 +42,11 @@ export async function generateDeepSeekBrief(
   record: BriefMaterial,
 ): Promise<DeepSeekBriefResult> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error('not_configured');
+  if (!apiKey) {
+    const fallback = buildExchangeQuestionFallback(record);
+    if (fallback) return { ...fallback, inputTokens: 0, outputTokens: 0 };
+    throw new Error('not_configured');
+  }
 
   let inputTokens = 0;
   let outputTokens = 0;
@@ -59,6 +63,9 @@ export async function generateDeepSeekBrief(
       inputTokens += usage.inputTokens;
       outputTokens += usage.outputTokens;
       if (attempt === 0 && isRetryableBriefFailure(error)) continue;
+      const fallback = buildExchangeQuestionFallback(record);
+      if (fallback)
+        return { ...fallback, inputTokens, outputTokens };
       throw preserveBriefUsage(
         new Error(error instanceof Error ? error.message : 'brief_quality_error'),
         inputTokens,
@@ -416,6 +423,74 @@ export function canonicalBriefOpening(record: BriefMaterial) {
       ? `，原始权益人为${record.originator.replace(/[;；]/g, '、')}`
       : '';
   return `${prefix}${actions[record.progressType] || `状态更新为“${record.status}”`}${originator}`;
+}
+
+export function buildExchangeQuestionFallback(record: BriefMaterial) {
+  if (record.progressType !== '反馈/问询') return null;
+  const file = record.files.find(
+    (item) =>
+      (item.kind === '反馈意见' || item.kind === '问询函') &&
+      item.issuerRole !== '原始权益人' &&
+      item.content,
+  );
+  if (!file?.content) return null;
+
+  const definitions = [
+    {
+      label: '业务参与人资质及履职能力',
+      patterns: [/业务参与人.{0,8}资质及履职能力/, /业务参与人.{0,8}履职能力/],
+    },
+    {
+      label: '不动产项目合规性',
+      patterns: [/(?:不动产|基础设施项目).{0,8}合规(?:情况|性)?/],
+    },
+    {
+      label: '项目经营与财务情况',
+      patterns: [/项目经营.{0,6}财务(?:情况)?/],
+    },
+    {
+      label: '资产评估与估值合理性',
+      patterns: [/资产评估/, /估值合理性/, /不动产估值/],
+    },
+    {
+      label: '基金运作与治理机制',
+      patterns: [/基金运作.{0,6}治理(?:机制)?/],
+    },
+  ] as const;
+  const topics = definitions.flatMap((definition) => {
+    const match = findQuestionTopic(file.content!, definition.patterns);
+    return match ? [{ ...definition, ...match }] : [];
+  });
+  if (!topics.length) return null;
+
+  const documentName = file.kind === '问询函' ? '审核问询函' : '反馈意见';
+  const claim = `${documentName}主要围绕${topics.map((topic) => topic.label).join('、')}等方面展开，要求进一步补充说明或充分披露`;
+  const brief = `${canonicalBriefOpening(record)}。${claim}。`;
+  const evidence = topics.map((topic) => ({
+    fileUrl: file.url,
+    page: topic.page,
+    claim,
+    quote: topic.quote,
+  }));
+  validateBrief(brief, record, evidence);
+  return { brief, evidence };
+}
+
+function findQuestionTopic(content: string, patterns: readonly RegExp[]) {
+  for (const pageText of content.split(/(?=\[第\d+页\])/)) {
+    const page = Number(pageText.match(/^\[第(\d+)页\]/)?.[1]);
+    if (!page) continue;
+    const compact = pageText.normalize('NFKC').replace(/\s/g, '');
+    for (const pattern of patterns) {
+      const match = compact.match(pattern);
+      if (match)
+        return {
+          page,
+          quote: match[0],
+        };
+    }
+  }
+  return null;
 }
 
 function normalizeClaim(value: string) {

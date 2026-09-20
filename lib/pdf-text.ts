@@ -49,11 +49,27 @@ async function extractPdfText(url: string) {
   }
   await loadingTask.destroy();
   const result = pages.join('\n');
-  if (!result) {
+  if (isPdfTextTooSparse(result, pageCount)) {
     const { extractPdfTextWithOcr } = await import('./pdf-ocr.ts');
     return extractPdfTextWithOcr(data, pageCount);
   }
   return result;
+}
+
+export function isPdfTextTooSparse(text: string, pageCount: number) {
+  const meaningfulCharacters = text
+    .replace(/\[第\d+页\]/g, '')
+    .replace(/\s/g, '').length;
+  const populatedPages = text
+    .split(/(?=\[第\d+页\])/)
+    .filter(
+      (page) =>
+        page.replace(/\[第\d+页\]/g, '').replace(/\s/g, '').length >= 40,
+    ).length;
+  return (
+    meaningfulCharacters < Math.max(40, pageCount * 40) ||
+    populatedPages < Math.max(1, Math.ceil(pageCount * 0.2))
+  );
 }
 
 async function downloadPdf(url: string) {
