@@ -23,6 +23,10 @@ void test('质量失败按可行动原因分类', () => {
     describeBriefFailure(new Error('evidence_number_mismatch')),
     '数字与原文不一致',
   );
+  assert.equal(
+    describeBriefFailure(new Error('incomplete_max_output_tokens')),
+    '模型输出达到上限',
+  );
 });
 
 void test('校验失败仍保留模型用量', () => {

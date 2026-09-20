@@ -55,8 +55,36 @@ export async function generateDeepSeekBrief(
       },
       body: JSON.stringify({
         model: 'deepseek-flash',
-        reasoning: { effort: 'low' },
-        max_output_tokens: 1600,
+        reasoning: { effort: 'none' },
+        temperature: 0.2,
+        max_output_tokens: 3200,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'reits_brief',
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['brief', 'evidence'],
+              properties: {
+                brief: { type: 'string' },
+                evidence: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['claim', 'fileIndex', 'quote'],
+                    properties: {
+                      claim: { type: 'string' },
+                      fileIndex: { type: 'integer', minimum: 1 },
+                      quote: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         instructions: buildInstructions(record),
         input: buildMaterial(record),
       }),
@@ -69,7 +97,13 @@ export async function generateDeepSeekBrief(
     const outputTokens = numberValue(data.usage?.output_tokens);
     if (data.status === 'incomplete' || data.incomplete_details)
       throw preserveBriefUsage(
-        new Error('incomplete_response'),
+        new Error(
+          data.incomplete_details?.reason === 'max_output_tokens'
+            ? 'incomplete_max_output_tokens'
+            : data.incomplete_details?.reason === 'content_filter'
+              ? 'incomplete_content_filter'
+              : 'incomplete_response',
+        ),
         inputTokens,
         outputTokens,
       );
@@ -381,7 +415,7 @@ function numberValue(value: unknown) {
 
 type DeepSeekResponse = {
   status?: string;
-  incomplete_details?: unknown;
+  incomplete_details?: { reason?: 'max_output_tokens' | 'content_filter' } | null;
   output_text?: string;
   output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
   usage?: { input_tokens?: number; output_tokens?: number };

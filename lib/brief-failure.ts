@@ -51,6 +51,8 @@ export function describeBriefFailure(error: unknown) {
   if (/missing_expansion/.test(message)) return '扩募标识缺失';
   if (/invalid_length|invalid_format|invalid_meta_content|incomplete_sentence/.test(message))
     return '正文格式不合格';
+  if (/incomplete_max_output_tokens/.test(message)) return '模型输出达到上限';
+  if (/incomplete_content_filter/.test(message)) return '模型输出触发内容过滤';
   if (/incomplete_response/.test(message)) return '模型响应不完整';
   if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
     return '简报服务暂时不可用';

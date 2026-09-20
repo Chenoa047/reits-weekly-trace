@@ -1,8 +1,8 @@
 import type { ReitsSourceFile } from '@/lib/reits-rules';
-import { describeFetchError } from '@/lib/fetch-error';
+import { describeFetchError } from './fetch-error.ts';
 
 const MAX_PAGES = 600;
-const MAX_TOTAL_EXCERPT_CHARS = 100_000;
+const MAX_TOTAL_EXCERPT_CHARS = 45_000;
 
 export async function addDocumentExcerpts(
   stage: string,
@@ -83,7 +83,7 @@ function pdfReferer(url: string) {
     : 'https://www.sse.com.cn/reits/info/';
 }
 
-function selectRelevantText(text: string, stage: string, limit: number) {
+export function selectRelevantText(text: string, stage: string, limit: number) {
   if (text.length <= limit) return text;
   const keywords: Record<string, string[]> = {
     受理: [
@@ -115,7 +115,7 @@ function selectRelevantText(text: string, stage: string, limit: number) {
     认购结果: ['有效认购', '确认比例', '认购倍数', '募集规模', '认购价格'],
     上市: ['上市日期', '交易代码', '基金份额', '募集规模', '认购价格'],
   };
-  const windows: string[] = [text.slice(0, 20_000)];
+  const windows: string[] = [];
   for (const keyword of keywords[stage] || []) {
     let from = 0;
     for (let count = 0; count < 12; count += 1) {
@@ -131,5 +131,6 @@ function selectRelevantText(text: string, stage: string, limit: number) {
       from = index + keyword.length;
     }
   }
+  windows.push(text.slice(0, Math.min(8_000, limit)));
   return [...new Set(windows)].join('\n').slice(0, limit);
 }
