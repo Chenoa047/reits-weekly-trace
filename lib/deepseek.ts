@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-20-v4';
+export const BRIEF_RULES_VERSION = '2026-09-20-v5';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -425,7 +425,7 @@ function validateOpeningSentence(value: string, record: BriefMaterial) {
     throw new Error('invalid_opening');
   if (
     record.progressType !== '申报' &&
-    /(?:原始权益人|底层资产|评估值|出租率|建筑面积|募集规模|交易代码|存续期限|认购价格|发行价格|询价区间|发售时间|募集期|亿元|万元|平方米|万平方米|元\/份|份|倍|%|％|MW|千瓦时)/.test(
+    /(?:原始权益人|底层资产|评估值|出租率|建筑面积|募集规模|交易代码|存续期限|认购价格|发行价格|询价区间|发售时间|募集期|亿元|万元|平方米|万平方米|元\/份|倍|%|％|MW|千瓦时)/.test(
       opening,
     )
   )

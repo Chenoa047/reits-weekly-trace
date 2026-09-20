@@ -250,7 +250,9 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
         record.briefRulesVersion,
       )
         ? record.brief
-        : UNPUBLISHED_BRIEF,
+        : record.progressType === '申报'
+          ? canonicalBrief(record)
+          : UNPUBLISHED_BRIEF,
     })),
   };
 }

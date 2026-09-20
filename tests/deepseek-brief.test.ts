@@ -399,3 +399,18 @@ void test('首句必须包含日期交易所项目简称和本次动作', () => 
     /opening_contains_details/,
   );
 });
+
+void test('询价和发售首句中的基金份额不是发行数据', () => {
+  const pricing = {
+    ...submission,
+    progressType: '询价',
+    status: '询价',
+    files: [],
+  };
+  assert.doesNotThrow(() =>
+    validateBrief(
+      '9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。',
+      pricing,
+    ),
+  );
+});
