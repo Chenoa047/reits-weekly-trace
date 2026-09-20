@@ -46,6 +46,7 @@ export function describeBriefFailure(error: unknown) {
     return '逐句证据不完整';
   if (/evidence_number_mismatch|unsupported_number/.test(message))
     return '数字与原文不一致';
+  if (/no_verified_detail/.test(message)) return '未生成可核验正文';
   if (/invalid_opening|opening_contains_details/.test(message))
     return '首句格式不合格';
   if (/missing_expansion/.test(message)) return '扩募标识缺失';

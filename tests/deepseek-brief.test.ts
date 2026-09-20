@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BRIEF_RULES_VERSION,
+  generateDeepSeekBrief,
   isBriefDisplayable,
   isCurrentBriefDisplayable,
   needsBriefRegeneration,
@@ -119,6 +120,84 @@ void test('来源未变时旧规则或失格简报仍要自动重生成', () => 
     isCurrentBriefDisplayable(current.brief, '申报', '旧规则'),
     false,
   );
+});
+
+void test('非申报项目只有固定首句或零证据时不能计为完整简报', () => {
+  const feedback = {
+    ...submission,
+    progressType: '反馈/问询',
+    status: '已反馈',
+  };
+  assert.throws(
+    () =>
+      validateBrief(
+        '9月15日，上交所网站显示，某REIT项目获反馈。',
+        feedback,
+        [],
+      ),
+    /no_verified_detail/,
+  );
+});
+
+void test('模型输出达到上限后使用精简材料自动重试并累计用量', async () => {
+  process.env.DEEPSEEK_API_KEY = 'non-secret-test-placeholder';
+  const originalFetch = globalThis.fetch;
+  const claim = '反馈意见主要关注项目合规性和估值合理性';
+  const inputs: string[] = [];
+  let calls = 0;
+  globalThis.fetch = async (_input, init) => {
+    calls += 1;
+    const rawBody = init?.body;
+    assert.equal(typeof rawBody, 'string');
+    if (typeof rawBody !== 'string') throw new Error('missing_test_body');
+    const body = JSON.parse(rawBody) as { input: string };
+    inputs.push(body.input);
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          usage: { input_tokens: 100, output_tokens: 20 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        status: 'completed',
+        output_text: JSON.stringify({
+          brief: `9月15日，上交所网站显示，某REIT获反馈。${claim}。`,
+          evidence: [{ claim, fileIndex: 1, quote: `${claim}。` }],
+        }),
+        usage: { input_tokens: 40, output_tokens: 10 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+  try {
+    const result = await generateDeepSeekBrief({
+      ...submission,
+      progressType: '反馈/问询',
+      status: '已反馈',
+      files: [
+        {
+          label: '反馈意见',
+          url: 'https://example.com/question.pdf',
+          kind: '反馈意见',
+          originalTitle: '受理反馈意见',
+          issuerRole: '交易所',
+          content: `[第2页] ${claim}。\n${'补充材料'.repeat(10_000)}`,
+        },
+      ],
+    });
+    assert.equal(calls, 2);
+    assert.equal(inputs[1].length < inputs[0].length, true);
+    assert.equal(result.brief.includes(claim), true);
+    assert.equal(result.inputTokens, 140);
+    assert.equal(result.outputTokens, 30);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 void test('扩募回复简报只在原文件给出变化数据时使用数字', () => {

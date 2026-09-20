@@ -1,4 +1,4 @@
-import { preserveBriefUsage } from './brief-failure.ts';
+import { briefFailureUsage, preserveBriefUsage } from './brief-failure.ts';
 
 type BriefMaterial = {
   exchange: string;
@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-20-v8';
+export const BRIEF_RULES_VERSION = '2026-09-20-v9';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -44,6 +44,36 @@ export async function generateDeepSeekBrief(
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error('not_configured');
 
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await requestDeepSeekBrief(record, apiKey, attempt === 1);
+      return {
+        ...result,
+        inputTokens: inputTokens + result.inputTokens,
+        outputTokens: outputTokens + result.outputTokens,
+      };
+    } catch (error) {
+      const usage = briefFailureUsage(error);
+      inputTokens += usage.inputTokens;
+      outputTokens += usage.outputTokens;
+      if (attempt === 0 && isRetryableBriefFailure(error)) continue;
+      throw preserveBriefUsage(
+        new Error(error instanceof Error ? error.message : 'brief_quality_error'),
+        inputTokens,
+        outputTokens,
+      );
+    }
+  }
+  throw new Error('brief_quality_error');
+}
+
+async function requestDeepSeekBrief(
+  record: BriefMaterial,
+  apiKey: string,
+  compact: boolean,
+): Promise<DeepSeekBriefResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
   try {
@@ -85,8 +115,8 @@ export async function generateDeepSeekBrief(
             },
           },
         },
-        instructions: buildInstructions(record),
-        input: buildMaterial(record),
+        instructions: buildInstructions(record, compact),
+        input: buildMaterial(record, compact),
       }),
       signal: controller.signal,
     });
@@ -126,6 +156,13 @@ export async function generateDeepSeekBrief(
   }
 }
 
+function isRetryableBriefFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
+    message,
+  );
+}
+
 export function sourceSignature(record: BriefMaterial) {
   return JSON.stringify({
     exchange: record.exchange,
@@ -158,7 +195,7 @@ export function needsBriefRegeneration(
   );
 }
 
-function buildInstructions(record: BriefMaterial) {
+function buildInstructions(record: BriefMaterial, compact = false) {
   return `你是公募REITs行业周报撰写助手。只依据用户提供的交易所页面、公告和文件摘录撰写一段中文简报正文，不得调用外部知识。
 
 通用规则：
@@ -173,10 +210,15 @@ function buildInstructions(record: BriefMaterial) {
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
 10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
-本条阶段规则：${stageInstruction(record)}`;
+本条阶段规则：${stageInstruction(record)}${
+    compact
+      ? '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
+      : ''
+  }`;
 }
 
-function buildMaterial(record: BriefMaterial) {
+function buildMaterial(record: BriefMaterial, compact = false) {
+  const compactLimit = Math.floor(18_000 / Math.max(record.files.length, 1));
   return `交易所：${record.exchange}
 项目简称：${record.shortName}
 项目状态：${record.status}
@@ -195,7 +237,13 @@ function buildMaterial(record: BriefMaterial) {
 披露日期：${file.publishedAt || '未标注'}
 栏目：${file.section || '未标注'}
 发布方角色：${file.issuerRole || '披露主体'}
-正文摘录：${file.content || '未成功读取，不得引用该文件中的事实'}`,
+正文摘录：${
+          file.content
+            ? compact
+              ? file.content.slice(0, compactLimit)
+              : file.content
+            : '未成功读取，不得引用该文件中的事实'
+        }`,
       )
       .join('\n') || '无附件；本条只能使用项目动态页事实'
   }`;
@@ -523,6 +571,12 @@ export function validateBrief(
     throw new Error('invalid_meta_content');
   if (record.offeringType === '扩募' && !value.includes('扩募'))
     throw new Error('missing_expansion_label');
+  if (
+    record.progressType !== '申报' &&
+    evidence !== undefined &&
+    (evidence.length === 0 || normalizeBrief(value) === canonicalBrief(record))
+  )
+    throw new Error('no_verified_detail');
   if (
     record.progressType === '反馈/问询' &&
     /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value)

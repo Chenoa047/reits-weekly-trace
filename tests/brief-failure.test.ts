@@ -27,6 +27,10 @@ void test('质量失败按可行动原因分类', () => {
     describeBriefFailure(new Error('incomplete_max_output_tokens')),
     '模型输出达到上限',
   );
+  assert.equal(
+    describeBriefFailure(new Error('no_verified_detail')),
+    '未生成可核验正文',
+  );
 });
 
 void test('校验失败仍保留模型用量', () => {
