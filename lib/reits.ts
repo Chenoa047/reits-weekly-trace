@@ -1,4 +1,5 @@
 import type { AppDb } from '@/db';
+import { briefFailureUsage, describeBriefFailure } from '@/lib/brief-failure';
 import { BRIEF_RULES_VERSION, generateDeepSeekBrief, isCurrentBriefDisplayable, needsBriefRegeneration, type BriefEvidence } from '@/lib/deepseek';
 import { describeFetchError } from '@/lib/fetch-error';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
@@ -395,6 +396,9 @@ export async function refreshWeek(
           outputTokens += generated.outputTokens;
         } catch (error) {
           failedCount += 1;
+          const failedUsage = briefFailureUsage(error);
+          inputTokens += failedUsage.inputTokens;
+          outputTokens += failedUsage.outputTokens;
           const reason = describeBriefFailure(error);
           briefFailures.set(reason, (briefFailures.get(reason) || 0) + 1);
           if (
@@ -1042,21 +1046,6 @@ async function fetchSzseJson<T>(path: string): Promise<T> {
     }
   }
   throw new Error([...new Set(failures)].join('、'));
-}
-
-function describeBriefFailure(error: unknown) {
-  const message = error instanceof Error ? error.message : '';
-  if (/缺少规定原文件/.test(message)) return '规定原文件缺失';
-  if (/原文件下载失败/.test(message))
-    return `原文件下载失败${message.includes('连接超时') ? '（连接超时）' : ''}`;
-  if (/原文件|PDF/.test(message)) return 'PDF文字读取失败';
-  if (/invalid_|unsupported_|incomplete_|missing_evidence|missing_expansion/.test(message))
-    return '简报质量校验未通过';
-  if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
-    return '简报服务暂时不可用';
-  if (/not_configured|authentication_failed|insufficient_balance/.test(message))
-    return '简报服务配置或余额异常';
-  return '简报生成失败';
 }
 
 function buildSseBrief(

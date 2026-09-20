@@ -1,3 +1,5 @@
+import { preserveBriefUsage } from './brief-failure.ts';
+
 type BriefMaterial = {
   exchange: string;
   shortName: string;
@@ -63,16 +65,24 @@ export async function generateDeepSeekBrief(
 
     if (!response.ok) throw new Error(classifyDeepSeekError(response.status));
     const data = (await response.json()) as DeepSeekResponse;
+    const inputTokens = numberValue(data.usage?.input_tokens);
+    const outputTokens = numberValue(data.usage?.output_tokens);
     if (data.status === 'incomplete' || data.incomplete_details)
-      throw new Error('incomplete_response');
-    const { brief, evidence } = parseBriefResponse(extractOutputText(data), record);
-    validateBrief(brief, record);
-    return {
-      brief,
-      evidence,
-      inputTokens: numberValue(data.usage?.input_tokens),
-      outputTokens: numberValue(data.usage?.output_tokens),
-    };
+      throw preserveBriefUsage(
+        new Error('incomplete_response'),
+        inputTokens,
+        outputTokens,
+      );
+    try {
+      const { brief, evidence } = parseBriefResponse(
+        extractOutputText(data),
+        record,
+      );
+      validateBrief(brief, record);
+      return { brief, evidence, inputTokens, outputTokens };
+    } catch (error) {
+      throw preserveBriefUsage(error, inputTokens, outputTokens);
+    }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError')
       throw new Error('timeout');
