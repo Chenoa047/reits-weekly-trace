@@ -638,3 +638,102 @@ void test('回复反馈不发布单项估值参数的具体调整数值', () => 
   );
   assert.equal(parsed.brief.includes(parameter), false);
 });
+
+void test('反馈问询的监管关注只能引用交易所原函，资产介绍只能引用招募说明书', () => {
+  const concern = '审核问询函主要关注项目合规性和估值合理性';
+  const asset = '根据招募说明书，项目底层资产位于北京市';
+  const record = {
+    ...submission,
+    progressType: '反馈/问询',
+    status: '已问询',
+    exchange: '深交所',
+    files: [
+      {
+        label: '审核问询函',
+        url: 'https://example.com/question.pdf',
+        kind: '问询函',
+        originalTitle: '审核问询函',
+        issuerRole: '交易所',
+        content: `[第2页] ${concern}。`,
+      },
+      {
+        label: '回复报告',
+        url: 'https://example.com/reply.pdf',
+        kind: '回复反馈',
+        originalTitle: '审核问询函的回复',
+        issuerRole: '原始权益人',
+        content: `[第3页] ${concern}。`,
+      },
+      {
+        label: '招募说明书',
+        url: 'https://example.com/prospectus.pdf',
+        kind: '招募说明书',
+        originalTitle: '招募说明书草案',
+        issuerRole: '披露主体',
+        content: `[第8页] ${asset}。`,
+      },
+    ],
+  };
+  const parsed = parseBriefResponse(
+    JSON.stringify({
+      brief: `9月15日，深交所网站显示，某REIT获问询。${concern}。${asset}。`,
+      evidence: [
+        { claim: concern, fileIndex: 2, quote: `${concern}。` },
+        { claim: asset, fileIndex: 3, quote: `${asset}。` },
+      ],
+    }),
+    record,
+  );
+  assert.equal(
+    parsed.brief,
+    `9月15日，深交所网站显示，某REIT项目获审核问询。${asset}。`,
+  );
+  assert.deepEqual(parsed.evidence.map((item) => item.fileUrl), [
+    'https://example.com/prospectus.pdf',
+  ]);
+});
+
+void test('回复反馈的扩展事实只能引用原始权益人致交易所的回复PDF', () => {
+  const exchangeClaim = '交易所问询函要求说明项目估值合理性';
+  const replyClaim = '回复报告对项目历史合规手续和治理机制进行了系统性回复';
+  const record = {
+    ...submission,
+    progressType: '回复反馈',
+    status: '已反馈',
+    files: [
+      {
+        label: '受理反馈意见',
+        url: 'https://example.com/question.pdf',
+        kind: '反馈意见',
+        originalTitle: '受理反馈意见',
+        issuerRole: '交易所',
+        content: `[第2页] ${exchangeClaim}。`,
+      },
+      {
+        label: '反馈意见答复',
+        url: 'https://example.com/reply.pdf',
+        kind: '回复反馈',
+        originalTitle: '受理反馈意见的答复',
+        issuerRole: '原始权益人',
+        content: `[第6页] ${replyClaim}。`,
+      },
+    ],
+  };
+  const parsed = parseBriefResponse(
+    JSON.stringify({
+      brief: `9月15日，上交所网站显示，某REIT回复反馈。${exchangeClaim}。${replyClaim}。`,
+      evidence: [
+        { claim: exchangeClaim, fileIndex: 1, quote: `${exchangeClaim}。` },
+        { claim: replyClaim, fileIndex: 2, quote: `${replyClaim}。` },
+      ],
+    }),
+    record,
+  );
+  assert.equal(
+    parsed.brief,
+    `9月15日，上交所网站显示，某REIT项目就反馈意见进行了答复。${replyClaim}。`,
+  );
+  assert.deepEqual(parsed.evidence.map((item) => item.fileUrl), [
+    'https://example.com/reply.pdf',
+  ]);
+});

@@ -106,20 +106,20 @@ export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
   if (stage === '受理' || stage === '注册生效')
     return present([latest('招募说明书')]);
   if (stage === '反馈/问询') {
-    return files.filter(
+    const exchangeQuestions = files.filter(
       (file) =>
         (file.section === '反馈意见及回复' || file.section === '问询与回复') &&
         (file.kind === '反馈意见' || file.kind === '问询函') &&
         file.issuerRole !== '原始权益人',
     );
+    return present([...exchangeQuestions, latest('招募说明书')]);
   }
   if (stage === '回复反馈') {
     return files.filter(
       (file) =>
         (file.section === '反馈意见及回复' || file.section === '问询与回复') &&
-        (((file.kind === '反馈意见' || file.kind === '问询函') &&
-          file.issuerRole !== '原始权益人') ||
-          (file.kind === '回复反馈' && file.issuerRole !== '交易所')),
+        file.kind === '回复反馈' &&
+        file.issuerRole !== '交易所',
     );
   }
   if (stage === '询价') return present([latest('询价'), latest('招募说明书')]);
@@ -155,8 +155,6 @@ export function missingRequiredMaterial(
   const kinds = new Set(files.map((file) => file.kind));
   const expected = required[stage as ReitsStage] || [];
   if (stage === '反馈/问询' && kinds.has('问询函')) return [];
-  if (stage === '回复反馈' && !kinds.has('反馈意见') && !kinds.has('问询函'))
-    return ['反馈意见/问询函'];
   return expected.filter((kind) => !kinds.has(kind));
 }
 

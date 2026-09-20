@@ -35,19 +35,32 @@ void test('同一审核状态按问询栏目中的文件角色区分问询和回
   assert.equal(inferProjectStage('已问询', [query, reply]), '回复反馈');
   assert.deepEqual(
     selectStageFiles('回复反馈', [query, reply]).map((item) => item.kind),
-    ['问询函', '回复反馈'],
+    ['回复反馈'],
   );
 });
 
-void test('回复阶段必须同时有交易所问询与原始权益人回复', () => {
+void test('回复阶段用两类文件识别进度，但只把原始权益人回复交给撰写模型', () => {
   const question = file('关于某项目挂牌申请文件的审核问询函.pdf', '问询与回复');
   const reply = file('关于某项目挂牌申请文件的审核问询函的回复.pdf', '问询与回复');
   question.issuerRole = '交易所';
   reply.issuerRole = '原始权益人';
-  assert.deepEqual(missingRequiredMaterial('回复反馈', [reply]), ['反馈意见/问询函']);
+  assert.deepEqual(missingRequiredMaterial('回复反馈', [reply]), []);
   assert.deepEqual(missingRequiredMaterial('回复反馈', [question, reply]), []);
   assert.equal(inferProjectStage('已问询', [question, reply]), '回复反馈');
   assert.equal(inferProjectStage('已问询', [question, { ...reply, issuerRole: '交易所' }]), '反馈/问询');
+  assert.deepEqual(selectStageFiles('回复反馈', [question, reply]), [reply]);
+});
+
+void test('反馈问询只用交易所原函归纳问题，招募说明书仅作为资产介绍补充', () => {
+  const question = file('关于某项目挂牌申请文件的审核问询函.pdf', '问询与回复');
+  const reply = file('关于某项目挂牌申请文件的审核问询函的回复.pdf', '问询与回复');
+  const prospectus = file('招募说明书草案.pdf', '项目申报材料');
+  question.issuerRole = '交易所';
+  reply.issuerRole = '原始权益人';
+  assert.deepEqual(selectStageFiles('反馈/问询', [question, reply, prospectus]), [
+    question,
+    prospectus,
+  ]);
 });
 
 void test('已受理与注册生效只选择日期最新的招募说明书', () => {
