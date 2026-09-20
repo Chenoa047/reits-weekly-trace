@@ -22,7 +22,7 @@ type BriefMaterial = {
   }>;
 };
 
-export const BRIEF_RULES_VERSION = '2026-09-20-v6';
+export const BRIEF_RULES_VERSION = '2026-09-20-v7';
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -211,11 +211,11 @@ function stageInstruction(record: BriefMaterial) {
     受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
       '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。后续只能依据交易所出具的反馈意见或问询函，概括主要关注主题和少量其他意见，不使用招募说明书补写资产介绍。',
-    回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。后续以原始权益人的回复文件为事实来源，优先写文件明确披露的关键参数或估值变化，再概括其他主要回复；交易所原函仅用于说明问题背景。',
+    回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。后续以原始权益人的回复文件为事实来源。估值参数部分只可概括调整涉及的参数类别，不展开每项参数调整前后的具体数值；随后只写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后概括其他主要回复主题。交易所原函仅用于说明问题背景。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
-    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为唯一发行数据依据，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；最新招募说明书只能在询价公告没有资产介绍时补充不含发行数字的底层资产概况。',
+    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为唯一发行数据依据，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；正文最后可依据最新招募说明书补充底层资产名称、位置和非发行类核心概况。',
     发售: '第一句写日期、交易所、项目简称及“发布基金份额发售公告”。后续以发售公告为主，依次写发售日期、认购价格、份额与配售结构、募集规模；仅在公告没有资产介绍时用最新招募说明书补充底层资产。',
-    认购结果: '第一句写日期、交易所、项目简称及“披露认购申请确认比例结果”。后续以认购结果公告为主，写各类投资者有效认购数量、确认比例或认购倍数及最终募集规模；仅在公告缺少必要项目背景时用最新招募说明书补充。',
+    认购结果: '第一句写日期、交易所、项目简称及“发布认购申请确认比例的公告”。后续严格按以下顺序写，公告披露的字段不得遗漏：基金份额总额、战略配售初始发售份额、网下发售初始发售份额、公众发售初始发售份额；网下投资者有效认购份额总数及配售比例；公众投资者有效认购基金份额数量、有效认购申请确认比例及认购倍数；基金份额认购价格、募集基金份额总额及最终募集规模。缺失字段直接跳过，不改变其余字段顺序。最终募集规模未直接列示时，仅可依据同一认购结果公告明确披露的“认购价格×募集基金份额总额”计算，并写明“因此，最终募集规模为”。',
     上市: '第一句写日期、交易所、项目简称及“正式上市”。后续以上市交易提示性公告为主，写交易代码、运作方式、期限、份额、发行价格和募集规模；需要补充时只能使用最新招募说明书、基金份额发售公告和认购申请确认比例结果公告。',
   };
   return `${rules[record.progressType] || '围绕本次最新披露动作和可核验事实撰写。'}${expansion}`;
@@ -294,6 +294,11 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
   }
 
   const safeSentences = detailSentences.filter((sentence) => {
+    if (
+      record.progressType === '回复反馈' &&
+      isGranularReplyParameterChange(sentence)
+    )
+      return false;
     const matches = candidateEvidence.filter(
       (item) => normalizeClaim(item.claim) === sentence,
     );
@@ -308,18 +313,28 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
         .normalize('NFKC')
         .replace(/[,\s]/g, '')
         .match(/\d+(?:\.\d+)?/g) || [];
-    return numbers.every((number) => quotes.includes(number));
+    const unsupported = numbers.filter((number) => !quotes.includes(number));
+    return (
+      !unsupported.length ||
+      (record.progressType === '认购结果' &&
+        supportsDerivedFinalScale(sentence, quotes, unsupported))
+    );
   });
+  const orderedSentences = orderDetailSentences(
+    safeSentences,
+    record.progressType,
+  );
   const opening = canonicalBriefOpening(record);
   const maximum = record.progressType === '反馈/问询' ? 280 : 400;
   const keptSentences: string[] = [];
-  for (const sentence of safeSentences) {
+  for (const sentence of orderedSentences) {
     const next = `${opening}。${[...keptSentences, sentence].join('。')}。`;
     if (Array.from(next.replace(/\s/g, '')).length <= maximum)
       keptSentences.push(sentence);
   }
-  const kept = new Set(keptSentences);
-  const evidence = candidateEvidence.filter((item) => kept.has(item.claim));
+  const evidence = keptSentences.flatMap((sentence) =>
+    candidateEvidence.filter((item) => item.claim === sentence),
+  );
   const brief = `${opening}${keptSentences.length ? `。${keptSentences.join('。')}` : ''}。`;
   return { brief, evidence };
 }
@@ -344,7 +359,7 @@ export function canonicalBriefOpening(record: BriefMaterial) {
     注册生效: '状态变更为“注册生效”',
     询价: '发布基金份额询价公告',
     发售: '发布基金份额发售公告',
-    认购结果: '披露认购申请确认比例结果',
+    认购结果: '发布认购申请确认比例的公告',
     上市: '正式上市',
   };
   const originator =
@@ -363,6 +378,75 @@ function normalizeClaim(value: string) {
 
 function containsNumber(value: string) {
   return /\d/.test(value.normalize('NFKC'));
+}
+
+function supportsDerivedFinalScale(
+  sentence: string,
+  quotes: string,
+  unsupported: string[],
+) {
+  if (unsupported.length !== 1) return false;
+  const normalizedSentence = sentence.normalize('NFKC').replace(/[,\s]/g, '');
+  const price = Number(
+    normalizedSentence.match(/认购价格(?:为)?(\d+(?:\.\d+)?)元\/份/)?.[1],
+  );
+  const shares = Number(
+    normalizedSentence.match(/募集(?:的)?基金份额总额(?:为)?(\d+(?:\.\d+)?)亿份/)?.[1],
+  );
+  const scaleText = normalizedSentence.match(
+    /最终募集规模(?:将)?(?:为)?(\d+(?:\.\d+)?)亿元/,
+  )?.[1];
+  const scale = Number(scaleText);
+  if (!price || !shares || !scaleText || !Number.isFinite(scale)) return false;
+  if (!quotes.includes(String(price)) || !quotes.includes(String(shares))) return false;
+  const decimals = scaleText.split('.')[1]?.length || 0;
+  return (
+    unsupported[0] === scaleText &&
+    Math.abs(price * shares - scale) < 0.5 * 10 ** -decimals
+  );
+}
+
+function isGranularReplyParameterChange(value: string) {
+  return (
+    containsNumber(value) &&
+    /出租率|租金增长率|长期增长率|租金收缴率|收缴率|折现率/.test(value)
+  );
+}
+
+function orderDetailSentences(sentences: string[], stage: string) {
+  return sentences
+    .map((sentence, index) => ({ sentence, index }))
+    .sort((left, right) => {
+      const rank =
+        stageSentenceRank(left.sentence, stage) -
+        stageSentenceRank(right.sentence, stage);
+      return rank || left.index - right.index;
+    })
+    .map(({ sentence }) => sentence);
+}
+
+function stageSentenceRank(sentence: string, stage: string) {
+  if (stage === '认购结果') {
+    if (/认购价格|最终募集规模|募集规模/.test(sentence)) return 4;
+    if (/初始发售份额|基金份额总额|募集基金份额总额/.test(sentence)) return 1;
+    if (/网下投资者/.test(sentence) && /有效认购|配售比例/.test(sentence)) return 2;
+    if (/公众投资者/.test(sentence) && /有效认购|确认比例|认购倍数/.test(sentence))
+      return 3;
+    return 5;
+  }
+  if (stage === '询价') {
+    return /底层资产|基础设施项目|不动产项目|项目所在地|项目位于/.test(sentence)
+      ? 2
+      : 1;
+  }
+  if (stage === '回复反馈') {
+    if (/估值参数|出租率|租金增长率|长期增长率|租金收缴率|收缴率|折现率/.test(sentence))
+      return 1;
+    if (/整体评估值|合计评估值|整体估值|评估值.*(?:下降|上升|变动)/.test(sentence))
+      return 2;
+    return 3;
+  }
+  return 1;
 }
 
 function findEvidencePage(content: string, quote: string) {

@@ -4,6 +4,7 @@ import {
   BRIEF_RULES_VERSION,
   canonicalBrief,
   generateDeepSeekBrief,
+  isBriefDisplayable,
   isCurrentBriefDisplayable,
   needsBriefRegeneration,
   type BriefEvidence,
@@ -54,8 +55,6 @@ export type ReitsRecord = {
 };
 
 type D1 = AppDb;
-const UNPUBLISHED_BRIEF = '本条简报暂未发布：内容正在重新核验。';
-
 const SSE_QUERY_ORIGINS = [
   'https://query.sse.com.cn',
   'http://query.sse.com.cn',
@@ -242,18 +241,33 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
     records: (rows.results.length
       ? rows.results.map(rowToRecord)
       : seedRecordsForRange(start, end)
-    ).map((record) => ({
-      ...record,
-      brief: isCurrentBriefDisplayable(
-        record.brief,
-        record.progressType,
-        record.briefRulesVersion,
-      )
-        ? record.brief
-        : record.progressType === '申报'
-          ? canonicalBrief(record)
-          : UNPUBLISHED_BRIEF,
-    })),
+    ).map(displayableRecord),
+  };
+}
+
+function displayableRecord(record: ReitsRecord): ReitsRecord {
+  if (
+    isCurrentBriefDisplayable(
+      record.brief,
+      record.progressType,
+      record.briefRulesVersion,
+    )
+  )
+    return record;
+  const previousBrief =
+    !/暂未发布|正在重新核验/.test(record.brief) &&
+    isBriefDisplayable(record.brief, record.progressType)
+    ? record.brief
+    : canonicalBrief(record);
+  return {
+    ...record,
+    brief: previousBrief,
+    note: [
+      record.note,
+      '当前沿用最近一次可用内容；待交易所连接恢复后按最新规则重新核验。',
+    ]
+      .filter(Boolean)
+      .join(''),
   };
 }
 
@@ -589,15 +603,6 @@ async function fetchSzseRecords(start: string, end: string) {
     (result): result is PromiseFulfilledResult<SzseProjectWithOffering[]> =>
       result.status === 'fulfilled',
   );
-  if (!succeeded.length) {
-    throw new Error(
-      listResults
-        .map((result) =>
-          describeFetchError(result.status === 'rejected' && result.reason),
-        )
-        .join('；'),
-    );
-  }
   const allProjects = succeeded.flatMap((result) => result.value);
   const projects = allProjects.filter(
     ({ project }) => project.updtdt >= start && project.updtdt <= end,
