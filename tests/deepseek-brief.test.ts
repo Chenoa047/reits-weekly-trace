@@ -314,7 +314,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
         url: 'https://example.com/question.pdf',
         kind: '问询函',
         originalTitle: '审核问询函',
-        content: '[第6页] 项目基本情况。\n[第7页] 请说明资产权属和估值依据。',
+        content: '[第6页] 项目基本情况。\n[第7页] 一、资产权属和估值依据。请说明资产权属和估值依据。',
       },
     ],
   };
@@ -323,7 +323,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
   const claim = '问询函主要关注资产权属和估值依据';
   const output = JSON.stringify({
     brief,
-    evidence: [{ claim, fileIndex: 1, quote: '请说明资产权属和估值依据。' }],
+    evidence: [{ claim, fileIndex: 1, quote: '一、资产权属和估值依据。' }],
   });
   const valid = parseBriefResponse(output, record);
   assert.equal(
@@ -335,7 +335,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
       fileUrl: 'https://example.com/question.pdf',
       page: 7,
       claim,
-      quote: '请说明资产权属和估值依据。',
+      quote: '一、资产权属和估值依据。',
     },
   ]);
   assert.deepEqual(
@@ -359,7 +359,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
           {
             claim: '简报没有这样的句子',
             fileIndex: 1,
-            quote: '请说明资产权属和估值依据。',
+            quote: '一、资产权属和估值依据。',
           },
         ],
       }),

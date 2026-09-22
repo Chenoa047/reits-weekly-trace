@@ -53,6 +53,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-09-22-feedback-v2');
   assert.equal(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -61,6 +62,26 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
     ),
     true,
   );
+});
+
+void test('反馈简报删除一级主题后的细分问题罗列', () => {
+  const main = '反馈意见主要围绕业务参与人资质及履职能力、不动产合规情况展开';
+  const details = '包括原始权益人股权转让、基金管理人专业能力、合规手续及资产重组等细分问题';
+  const other = '其余还包括程序合规与信息披露等其他反馈意见';
+  const parsed = parseBriefResponse(
+    JSON.stringify({
+      brief: `${canonicalBriefOpening(record)}。${main}。${details}。${other}。`,
+      evidence: [
+        { claim: main, fileIndex: 1, quote: '一、业务参与人资质及履职能力。' },
+        { claim: main, fileIndex: 1, quote: '二、不动产合规情况。' },
+        { claim: details, fileIndex: 1, quote: '（一）请说明资产评估细节及程序合规事项。' },
+        { claim: other, fileIndex: 1, quote: '请补充说明程序合规与信息披露事项。' },
+      ],
+    }),
+    record,
+  );
+  assert.equal(parsed.brief, `${canonicalBriefOpening(record)}。${main}。${other}。`);
+  assert.equal(parsed.evidence.some((item) => item.claim === details), false);
 });
 
 void test('反馈正文按一级主题、其他意见、资产介绍的顺序展示', () => {

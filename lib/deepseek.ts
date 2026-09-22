@@ -24,7 +24,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-09-22-feedback-v1';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-09-22-feedback-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 
 export function briefRulesVersionFor(stage: string) {
@@ -279,7 +279,7 @@ function stageInstruction(record: BriefMaterial) {
     申报: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已申报’”；项目动态页披露原始权益人时可在同句末尾写明。不得呈现或引用其他文件，不写底层资产。',
     受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
-      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。随后只依据交易所致原始权益人或申报方的反馈意见/审核问询函，概括原函中“一、二、三……”等一级大标题涉及的主要方面；不要把大标题下的细分问题或小标题逐项拆开。接着仅依据原函最后一大项“其他反馈意见”“其他反馈问题”或“其他问询问题”，用“其余还包括……”概括其中少量主要事项；不得从前面各大项抽取细分问题充作“其余”。简报结尾依据该项目最新招募说明书，介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息；资产介绍只引用招募说明书，不能引用交易所原函、回复文件或自行补写。缺少对应原文时不补写。',
+      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。随后只用一个完整句子概括交易所原函中“一、二、三……”等一级大标题涉及的主要方面，到“等方面展开”或同义表述即止；绝对不要再接“包括……”列举细分问题，也不要另起一句列举大标题下的小标题、具体问题或案例。接着仅依据原函最后一大项“其他反馈意见”“其他反馈问题”或“其他问询问题”，用“其余还包括……”概括其中少量主要事项；不得从前面各大项抽取细分问题充作“其余”。简报结尾依据该项目最新招募说明书，介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息；资产介绍只引用招募说明书，不能引用交易所原函、回复文件或自行补写。缺少对应原文时不补写。',
     回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。第一句之后的全部事实只能依据原始权益人或申报方提交给交易所的答复/回复PDF，不能引用交易所发出的反馈意见或审核问询函。先概括调整涉及的估值参数类别，不展开每项参数调整前后的具体数值；随后只写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后概括业务参与人资质及履约能力、历史合规手续、土地用途、关联方租赁、运营管理费、治理机制、回收资金安排等回复文件实际涉及的其他主题。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
     询价: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额询价公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②询价区间、询价日及具体时间、预计基金份额募集期；③本次发售份额总额、战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按询价区间上下限与本次发售总份额计算的募集资金总额区间，注明为按上下限计算，单位和小数精度须核对；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。发行数据与注册文号、基金代码只能引用询价公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
@@ -368,6 +368,12 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
       (item) => normalizeClaim(item.claim) === sentence,
     );
     if (!matches.length) return false;
+    if (record.progressType === '反馈/问询' &&
+        !isOtherFeedbackClaim(sentence) &&
+        !isFeedbackMainSummary(sentence) &&
+        !matches.some((item) => record.files.some((file) =>
+          file.kind === '招募说明书' && file.url === item.fileUrl)))
+      return false;
     const quotes = matches
       .map((item) => item.quote)
       .join(' ')
@@ -397,6 +403,10 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
   const maximum = briefMaximumLength(record.progressType);
   const keptSentences: string[] = [];
   for (const sentence of orderedSentences) {
+    if (record.progressType === '反馈/问询' &&
+        isFeedbackMainSummary(sentence) &&
+        keptSentences.some(isFeedbackMainSummary))
+      continue;
     const next = `${opening}。${[...keptSentences, sentence].join('。')}。`;
     if (Array.from(next.replace(/\s/g, '')).length <= maximum)
       keptSentences.push(sentence);
@@ -619,11 +629,11 @@ function isAllowedEvidenceSource(
       (file.kind === '反馈意见' || file.kind === '问询函') &&
       file.issuerRole !== '原始权益人'
     )
-      return (
-        !/底层资产|项目位于|建筑面积|可供出租面积|占地面积|原始权益人为|项目原始权益人/.test(claim) &&
-        (!isOtherFeedbackClaim(claim) ||
-          isQuoteInOtherFeedbackSection(file.content || '', quote))
-      );
+      return !/底层资产|项目位于|建筑面积|可供出租面积|占地面积|原始权益人为|项目原始权益人/.test(claim) &&
+        (isOtherFeedbackClaim(claim)
+          ? isQuoteInOtherFeedbackSection(file.content || '', quote)
+          : isFeedbackMainSummary(claim) &&
+            /[一二三四五六七八九十]{1,3}[、.．]\s*[^。；\n]{2,55}/.test(quote));
     return file.kind === '招募说明书' && isAssetIntroductionSentence(claim);
   }
   return true;
@@ -631,6 +641,11 @@ function isAllowedEvidenceSource(
 
 function isOtherFeedbackClaim(value: string) {
   return /其余还包括|此外还包括|其他反馈意见|其他反馈问题|其他问询问题/.test(value);
+}
+
+function isFeedbackMainSummary(value: string) {
+  return /(?:反馈意见|问询函).{0,12}(?:主要|重点)(?:围绕|关注|涉及)/.test(value) &&
+    !/包括|具体|其中|例如|分别|逐项/.test(value);
 }
 
 function isQuoteInOtherFeedbackSection(content: string, quote: string) {
