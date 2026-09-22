@@ -2,6 +2,7 @@ import type { AppDb } from '@/db';
 import { briefFailureUsage, describeBriefFailure } from '@/lib/brief-failure';
 import {
   BRIEF_RULES_VERSION,
+  briefRulesVersionFor,
   canonicalBrief,
   generateDeepSeekBrief,
   isBriefDisplayable,
@@ -11,6 +12,7 @@ import {
 } from '@/lib/deepseek';
 import { describeFetchError } from '@/lib/fetch-error';
 import { addDocumentExcerpts } from '@/lib/pdf-text';
+import { briefAfterGenerationFailure } from '@/lib/refresh-brief';
 import {
   beginScheduledRefreshRun,
   finishRefreshRun,
@@ -268,7 +270,7 @@ function displayableRecord(record: ReitsRecord): ReitsRecord {
     brief: previousBrief,
     note: [
       record.note,
-      '当前沿用最近一次可用内容；待交易所连接恢复后按最新规则重新核验。',
+      '当前沿用最近一次可用内容；待按最新规则重新核验。',
     ]
       .filter(Boolean)
       .join(''),
@@ -372,8 +374,9 @@ export async function refreshWeek(
   let szseCount = 0;
   let generatedCount = 0;
   let progressOnlyCount = 0;
+  let preservedCount = 0;
   let skippedCount = 0;
-  const failedCount = 0;
+  let failedCount = 0;
   const briefFailures = new Map<string, number>();
   let inputTokens = 0;
   let outputTokens = 0;
@@ -404,7 +407,7 @@ export async function refreshWeek(
         try {
           if (record.progressType === '申报') {
             record.evidence = [];
-            record.briefRulesVersion = BRIEF_RULES_VERSION;
+            record.briefRulesVersion = briefRulesVersionFor(record.progressType);
             record.note = undefined;
             generatedCount += 1;
             await upsertRecord(db, record);
@@ -425,7 +428,7 @@ export async function refreshWeek(
           const generated = await generateDeepSeekBrief(generationRecord);
           record.brief = generated.brief;
           record.evidence = generated.evidence;
-          record.briefRulesVersion = BRIEF_RULES_VERSION;
+          record.briefRulesVersion = briefRulesVersionFor(record.progressType);
           record.note = undefined;
           generatedCount += 1;
           inputTokens += generated.inputTokens;
@@ -436,11 +439,11 @@ export async function refreshWeek(
           outputTokens += failedUsage.outputTokens;
           const reason = describeBriefFailure(error);
           briefFailures.set(reason, (briefFailures.get(reason) || 0) + 1);
-          record.brief = canonicalBrief(record);
-          record.evidence = [];
-          record.briefRulesVersion = BRIEF_RULES_VERSION;
-          record.note = `本条仅发布交易所确认的项目进度；扩展事实未发布，原因：${reason}。`;
-          progressOnlyCount += 1;
+          const fallback = briefAfterGenerationFailure(record, existing, reason);
+          Object.assign(record, fallback.record);
+          failedCount += 1;
+          if (fallback.preserved) preservedCount += 1;
+          else progressOnlyCount += 1;
         }
       } else if (options.generateBriefs) {
         skippedCount += 1;
@@ -454,7 +457,7 @@ export async function refreshWeek(
       await upsertRecord(db, record);
     }
     const aiMessage = options.generateBriefs
-      ? `；完整简报 ${generatedCount} 条、仅发布进度 ${progressOnlyCount} 条、跳过 ${skippedCount} 条、失败 ${failedCount} 条${briefFailures.size ? `（仅发布进度原因：${[...briefFailures].map(([reason, count]) => `${reason} ${count} 条`).join('、')}）` : ''}，DeepSeek 输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
+      ? `；新生成完整简报 ${generatedCount} 条、保留旧简报 ${preservedCount} 条、仅发布进度 ${progressOnlyCount} 条、跳过 ${skippedCount} 条、生成失败 ${failedCount} 条${briefFailures.size ? `（失败原因：${[...briefFailures].map(([reason, count]) => `${reason} ${count} 条`).join('、')}）` : ''}，DeepSeek 输入 ${inputTokens} tokens、输出 ${outputTokens} tokens`
       : '';
     const sseMessage =
       sseResult.status === 'fulfilled'
@@ -500,6 +503,7 @@ export async function refreshWeek(
     sseCount,
     szseCount,
     generatedCount,
+    preservedCount,
     progressOnlyCount,
     skippedCount,
     failedCount,

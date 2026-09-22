@@ -23,6 +23,16 @@ type BriefMaterial = {
 };
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
+const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-09-22-feedback-v1';
+const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
+
+export function briefRulesVersionFor(stage: string) {
+  if (stage === '询价') return INQUIRY_BRIEF_RULES_VERSION;
+  if (stage === '反馈/问询') return FEEDBACK_BRIEF_RULES_VERSION;
+  if (stage === '发售') return OFFERING_BRIEF_RULES_VERSION;
+  return BRIEF_RULES_VERSION;
+}
 
 export type DeepSeekBriefResult = {
   brief: string;
@@ -196,7 +206,7 @@ export function needsBriefRegeneration(
   return (
     force ||
     !existing ||
-    existing.briefRulesVersion !== BRIEF_RULES_VERSION ||
+    existing.briefRulesVersion !== briefRulesVersionFor(incoming.progressType) ||
     sourceSignature(existing) !== sourceSignature(incoming) ||
     !isBriefDisplayable(existing.brief, incoming.progressType)
   );
@@ -211,7 +221,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 3. 正文使用项目简称，不重复基金全称；不写“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，不写基金管理人、专项计划名称或与本次事件无关的流程回顾。
 4. 每个事实只能来自下方“允许使用的原文件摘录”。项目动态页只可确认本次进度、交易所、日期；仅“申报”阶段还可使用项目动态页披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。
 5. 第一事实句之后的每个完整句子都必须提供证据。evidence.claim必须逐字复制该完整句子（可不含末尾句号），不能只截取句中一小段；evidence.quote必须逐字复制同一页原文件中的连续原文。一个句子引用多个文件时，为同一claim分别提供多条证据。
-6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持，计算值只有在公告明确给出或可由同一句列明的数字直接计算时才能写。
+6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。
 7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
 8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。文件没有变化数据时不得硬写估值变化。
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
@@ -219,7 +229,11 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 
 本条阶段规则：${stageInstruction(record)}${
     compact
-      ? '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
+      ? record.progressType === '询价'
+        ? '\n本次为精简重试：保持询价六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
+        : record.progressType === '发售'
+          ? '\n本次为精简重试：保持发售六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
+        : '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
       : ''
   }`;
 }
@@ -265,11 +279,11 @@ function stageInstruction(record: BriefMaterial) {
     申报: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已申报’”；项目动态页披露原始权益人时可在同句末尾写明。不得呈现或引用其他文件，不写底层资产。',
     受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
-      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。主要内容只能依据交易所出具、致原始权益人或申报方的反馈意见/审核问询函，先归纳业务参与人资质及履职能力、不动产合规性、经营与财务、资产评估与估值合理性、基金运作与治理等主要关注大类，再用一句概括少量其他反馈/问询事项，不逐题罗列。若同时提供最新招募说明书，可在最后补充原始权益人和底层资产名称、位置、面积等简要介绍；资产介绍只能引用招募说明书，不能引用回复文件或自行补写。',
+      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。随后只依据交易所致原始权益人或申报方的反馈意见/审核问询函，概括原函中“一、二、三……”等一级大标题涉及的主要方面；不要把大标题下的细分问题或小标题逐项拆开。接着仅依据原函最后一大项“其他反馈意见”“其他反馈问题”或“其他问询问题”，用“其余还包括……”概括其中少量主要事项；不得从前面各大项抽取细分问题充作“其余”。简报结尾依据该项目最新招募说明书，介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息；资产介绍只引用招募说明书，不能引用交易所原函、回复文件或自行补写。缺少对应原文时不补写。',
     回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。第一句之后的全部事实只能依据原始权益人或申报方提交给交易所的答复/回复PDF，不能引用交易所发出的反馈意见或审核问询函。先概括调整涉及的估值参数类别，不展开每项参数调整前后的具体数值；随后只写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后概括业务参与人资质及履约能力、历史合规手续、土地用途、关联方租赁、运营管理费、治理机制、回收资金安排等回复文件实际涉及的其他主题。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
-    询价: '第一句写日期、交易所、项目简称及“发布询价公告”。后续以询价公告为唯一发行数据依据，依次写询价区间、询价时间、募集期等公告明确披露的核心安排；正文最后可依据最新招募说明书补充底层资产名称、位置和非发行类核心概况。',
-    发售: '第一句写日期、交易所、项目简称及“发布基金份额发售公告”。后续以发售公告为主，依次写发售日期、认购价格、份额与配售结构、募集规模；仅在公告没有资产介绍时用最新招募说明书补充底层资产。',
+    询价: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额询价公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②询价区间、询价日及具体时间、预计基金份额募集期；③本次发售份额总额、战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按询价区间上下限与本次发售总份额计算的募集资金总额区间，注明为按上下限计算，单位和小数精度须核对；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。发行数据与注册文号、基金代码只能引用询价公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
+    发售: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额发售公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②发售认购价格、基金运作方式、存续期限、本次发售份额总额；③战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按认购价格乘以本次发售份额总额计算募集资金总额，写明“按认购价格和发售份额总额计算”，并核对单位和小数精度；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。注册文号、基金代码、发行安排和份额数据只能引用发售公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
     认购结果: '第一句写日期、交易所、项目简称及“发布认购申请确认比例的公告”。后续严格按以下顺序写，公告披露的字段不得遗漏：基金份额总额、战略配售初始发售份额、网下发售初始发售份额、公众发售初始发售份额；网下投资者有效认购份额总数及配售比例；公众投资者有效认购基金份额数量、有效认购申请确认比例及认购倍数；基金份额认购价格、募集基金份额总额及最终募集规模。缺失字段直接跳过，不改变其余字段顺序。最终募集规模未直接列示时，仅可依据同一认购结果公告明确披露的“认购价格×募集基金份额总额”计算，并写明“因此，最终募集规模为”。',
     上市: '第一句写日期、交易所、项目简称及“正式上市”。后续以上市交易提示性公告为主，写交易代码、运作方式、期限、份额、发行价格和募集规模；需要补充时只能使用最新招募说明书、基金份额发售公告和认购申请确认比例结果公告。',
   };
@@ -332,12 +346,7 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     if (!detailSentences.includes(claim)) continue;
     const file = record.files[item.fileIndex - 1];
     if (!file?.content) continue;
-    if (!isAllowedEvidenceSource(record.progressType, claim, file)) continue;
-    if (
-      record.progressType === '询价' &&
-      containsNumber(claim) &&
-      file.kind !== '询价'
-    )
+    if (!isAllowedEvidenceSource(record.progressType, claim, file, item.quote))
       continue;
     const page = findEvidencePage(file.content, item.quote);
     if (!page) continue;
@@ -370,10 +379,14 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
         .replace(/[,\s]/g, '')
         .match(/\d+(?:\.\d+)?/g) || [];
     const unsupported = numbers.filter((number) => !quotes.includes(number));
+    if (record.progressType === '发售' && /募集资金总额/.test(sentence))
+      return supportsDerivedOfferingScale(sentence, quotes, unsupported);
     return (
       !unsupported.length ||
       (record.progressType === '认购结果' &&
-        supportsDerivedFinalScale(sentence, quotes, unsupported))
+        supportsDerivedFinalScale(sentence, quotes, unsupported)) ||
+      (record.progressType === '询价' &&
+        supportsDerivedInquiryScale(sentence, quotes, unsupported))
     );
   });
   const orderedSentences = orderDetailSentences(
@@ -381,7 +394,7 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     record.progressType,
   );
   const opening = canonicalBriefOpening(record);
-  const maximum = record.progressType === '反馈/问询' ? 280 : 400;
+  const maximum = briefMaximumLength(record.progressType);
   const keptSentences: string[] = [];
   for (const sentence of orderedSentences) {
     const next = `${opening}。${[...keptSentences, sentence].join('。')}。`;
@@ -403,7 +416,12 @@ export function canonicalBriefOpening(record: BriefMaterial) {
   const [, month, day] = record.updateDate.split('-');
   const date = `${Number(month)}月${Number(day)}日`;
   const expansion = record.offeringType === '扩募' ? '扩募' : '';
-  const prefix = `${date}，${record.exchange}网站显示，${record.shortName}${expansion}项目`;
+  const subject =
+    (record.progressType === '询价' || record.progressType === '发售') &&
+    record.offeringType !== '扩募'
+      ? record.shortName
+      : `${record.shortName}${expansion}项目`;
+  const prefix = `${date}，${record.exchange}网站显示，${subject}`;
   const actions: Record<string, string> = {
     申报: '状态为“已申报”',
     受理: '状态为“已受理”',
@@ -438,23 +456,23 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
   const definitions = [
     {
       label: '业务参与人资质及履职能力',
-      patterns: [/业务参与人.{0,8}资质及履职能力/, /业务参与人.{0,8}履职能力/],
+      patterns: [/^(?:关于)?业务参与人.{0,8}资质及履职能力/, /^(?:关于)?业务参与人.{0,8}履职能力/],
     },
     {
       label: '不动产项目合规性',
-      patterns: [/(?:不动产|基础设施项目).{0,8}合规(?:情况|性)?/],
+      patterns: [/^(?:关于)?(?:不动产|基础设施项目).{0,8}合规(?:情况|性)?/],
     },
     {
       label: '项目经营与财务情况',
-      patterns: [/项目经营.{0,6}财务(?:情况)?/],
+      patterns: [/^(?:关于)?项目经营.{0,6}财务(?:情况)?/],
     },
     {
       label: '资产评估与估值合理性',
-      patterns: [/资产评估/, /估值合理性/, /不动产估值/],
+      patterns: [/^(?:关于)?资产评估/, /^(?:关于)?估值合理性/, /^(?:关于)?不动产估值/],
     },
     {
       label: '基金运作与治理机制',
-      patterns: [/基金运作.{0,6}治理(?:机制)?/],
+      patterns: [/^(?:关于)?基金运作.{0,6}治理(?:机制)?/],
     },
   ] as const;
   const topics = definitions.flatMap((definition) => {
@@ -465,29 +483,96 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
 
   const documentName = file.kind === '问询函' ? '审核问询函' : '反馈意见';
   const claim = `${documentName}主要围绕${topics.map((topic) => topic.label).join('、')}等方面展开，要求进一步补充说明或充分披露`;
-  const brief = `${canonicalBriefOpening(record)}。${claim}。`;
-  const evidence = topics.map((topic) => ({
+  const details = [claim];
+  const evidence: BriefEvidence[] = topics.map((topic) => ({
     fileUrl: file.url,
     page: topic.page,
     claim,
     quote: topic.quote,
   }));
+  const other = summarizeOtherFeedback(file.content);
+  if (other &&
+      Array.from(`${canonicalBriefOpening(record)}。${[...details, other.claim].join('。')}。`.replace(/\s/g, '')).length <= briefMaximumLength(record.progressType)) {
+    details.push(other.claim);
+    evidence.push(...other.evidence.map((item) => ({ ...item, fileUrl: file.url })));
+  }
+  const prospectus = record.files
+    .filter((item) => item.kind === '招募说明书' && item.content)
+    .sort((left, right) => (right.publishedAt || '').localeCompare(left.publishedAt || ''))[0];
+  if (prospectus?.content) {
+    for (const pattern of [
+      /原始权益人\s*(?:为|是|：|:)\s*([^。；\n]{2,80})[。；]/,
+      /底层资产\s*(?:为|包括|：|:)\s*([^。；\n]{2,80})[。；]/,
+    ]) {
+      const fact = findProspectusFact(prospectus.content, pattern);
+      if (!fact) continue;
+      if (details.some((item) => item.includes(fact.claim))) continue;
+      const next = `${canonicalBriefOpening(record)}。${[...details, fact.claim].join('。')}。`;
+      if (Array.from(next.replace(/\s/g, '')).length > briefMaximumLength(record.progressType))
+        continue;
+      details.push(fact.claim);
+      evidence.push({ fileUrl: prospectus.url, ...fact });
+    }
+  }
+  const brief = `${canonicalBriefOpening(record)}。${details.join('。')}。`;
   validateBrief(brief, record, evidence);
   return { brief, evidence };
 }
 
 function findQuestionTopic(content: string, patterns: readonly RegExp[]) {
+  for (const pageText of content.split(/(?=\[第\d+页\])/).reverse()) {
+    const page = Number(pageText.match(/^\[第(\d+)页\]/)?.[1]);
+    if (!page) continue;
+    for (const heading of pageText.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*([^。；\n]{2,55})/g)) {
+      const title = heading[1].normalize('NFKC').replace(/\s/g, '');
+      if (patterns.some((pattern) => pattern.test(title))) {
+        return { page, quote: heading[0].trim() };
+      }
+    }
+  }
+  return null;
+}
+
+function summarizeOtherFeedback(content: string) {
+  const headings = [...content.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)];
+  const heading = headings.at(-1);
+  if (!heading || heading.index === undefined) return null;
+  const tail = content.slice(heading.index + heading[0].length);
+  const themes = [
+    { label: '扩募条件', pattern: /扩募条件/ },
+    { label: '程序合规', pattern: /程序合规|合规程序/ },
+    { label: '信息披露', pattern: /信息披露/ },
+    { label: '资金使用', pattern: /资金使用|回收资金/ },
+    { label: '账户安排', pattern: /共管账户|账户安排/ },
+    { label: '基金收益', pattern: /基金收益|收益分配/ },
+    { label: '项目投保', pattern: /资产投保|项目投保/ },
+  ];
+  const found = themes.flatMap(({ label, pattern }) => {
+    const match = pattern.exec(tail);
+    if (!match) return [];
+    const page = pageAtOffset(content, heading.index! + heading[0].length + match.index);
+    return page ? [{ label, page, quote: match[0], index: match.index }] : [];
+  }).sort((left, right) => left.index - right.index).slice(0, 3);
+  if (!found.length) return null;
+  const claim = `其余还包括${found.map((item) => item.label).join('、')}等其他反馈意见`;
+  return {
+    claim,
+    evidence: found.map(({ page, quote }) => ({ page, quote, claim })),
+  };
+}
+
+function pageAtOffset(content: string, offset: number) {
+  return Number([...content.slice(0, offset).matchAll(/\[第(\d+)页\]/g)].at(-1)?.[1] || 0);
+}
+
+function findProspectusFact(content: string, pattern: RegExp) {
   for (const pageText of content.split(/(?=\[第\d+页\])/)) {
     const page = Number(pageText.match(/^\[第(\d+)页\]/)?.[1]);
     if (!page) continue;
-    const compact = pageText.normalize('NFKC').replace(/\s/g, '');
-    for (const pattern of patterns) {
-      const match = compact.match(pattern);
-      if (match)
-        return {
-          page,
-          quote: match[0],
-        };
+    const match = pattern.exec(pageText);
+    if (match) {
+      const quote = match[0].trim();
+      return { page, quote, claim: quote.replace(/[。；]$/, '').replace(/\s+/g, '') };
     }
   }
   return null;
@@ -508,7 +593,24 @@ function isAllowedEvidenceSource(
   stage: string,
   claim: string,
   file: BriefMaterial['files'][number],
+  quote: string,
 ) {
+  if (stage === '询价') {
+    return (
+      (file.kind === '询价' && !isAssetBackgroundSentence(claim)) ||
+      (file.kind === '招募说明书' &&
+        isAssetIntroductionSentence(claim) &&
+        !/询价|募集|发售|配售|认购|基金代码|证监许可|注册批文|元\/份/.test(claim))
+    );
+  }
+  if (stage === '发售') {
+    return (
+      (file.kind === '发售' && !isAssetBackgroundSentence(claim)) ||
+      (file.kind === '招募说明书' &&
+        isAssetIntroductionSentence(claim) &&
+        !/询价|募集|发售|配售|认购|基金代码|证监许可|注册批文|运作方式|存续期限|元\/份/.test(claim))
+    );
+  }
   if (stage === '回复反馈') {
     return file.kind === '回复反馈' && file.issuerRole !== '交易所';
   }
@@ -517,16 +619,36 @@ function isAllowedEvidenceSource(
       (file.kind === '反馈意见' || file.kind === '问询函') &&
       file.issuerRole !== '原始权益人'
     )
-      return true;
+      return (
+        !/底层资产|项目位于|建筑面积|可供出租面积|占地面积|原始权益人为|项目原始权益人/.test(claim) &&
+        (!isOtherFeedbackClaim(claim) ||
+          isQuoteInOtherFeedbackSection(file.content || '', quote))
+      );
     return file.kind === '招募说明书' && isAssetIntroductionSentence(claim);
   }
   return true;
+}
+
+function isOtherFeedbackClaim(value: string) {
+  return /其余还包括|此外还包括|其他反馈意见|其他反馈问题|其他问询问题/.test(value);
+}
+
+function isQuoteInOtherFeedbackSection(content: string, quote: string) {
+  const normalized = content.normalize('NFKC').replace(/\s/g, '');
+  const headings = [...normalized.matchAll(/[一二三四五六七八九十]{1,3}[、.]其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)];
+  const lastHeading = headings.at(-1);
+  const quoteAt = normalized.lastIndexOf(quote.normalize('NFKC').replace(/\s/g, ''));
+  return Boolean(lastHeading && quoteAt >= (lastHeading.index || 0));
 }
 
 function isAssetIntroductionSentence(value: string) {
   return /原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|可供出租面积|占地面积/.test(
     value,
   );
+}
+
+function isAssetBackgroundSentence(value: string) {
+  return /底层资产|项目位于|建筑面积|可供出租面积|占地面积|原始权益人为|项目原始权益人为/.test(value);
 }
 
 function supportsDerivedFinalScale(
@@ -555,6 +677,64 @@ function supportsDerivedFinalScale(
   );
 }
 
+function supportsDerivedInquiryScale(
+  sentence: string,
+  quotes: string,
+  unsupported: string[],
+) {
+  if (unsupported.length !== 2 || !/按询价区间上下限计算/.test(sentence))
+    return false;
+  const prices = [...quotes.matchAll(/(\d+(?:\.\d+)?)元\/份/g)].map((match) =>
+    Number(match[1]),
+  );
+  const shares = quotes.match(
+    /(?:发售份额总额|发售总份额|募集基金份额总额)(?:为)?(\d+(?:\.\d+)?)(亿|万)份/,
+  );
+  const scale = sentence.normalize('NFKC').replace(/[,\s]/g, '').match(
+    /募集资金总额(?:为|约为)?(\d+(?:\.\d+)?)(亿|万)元(?:至|到|-|—|~)(\d+(?:\.\d+)?)(亿|万)元/,
+  );
+  if (prices.length !== 2 || !shares || !scale) return false;
+  const totalShares = Number(shares[1]) * (shares[2] === '万' ? 1e-4 : 1);
+  const expected = prices.map((price) => price * totalShares).sort((a, b) => a - b);
+  const actual = [1, 3].map((index) =>
+    Number(scale[index]) * (scale[index + 1] === '万' ? 1e-4 : 1),
+  );
+  return (
+    unsupported[0] === scale[1] &&
+    unsupported[1] === scale[3] &&
+    actual.every((value, index) => {
+      const decimals = scale[index === 0 ? 1 : 3].split('.')[1]?.length || 0;
+      const unit = scale[index === 0 ? 2 : 4] === '万' ? 1e-4 : 1;
+      return Math.abs(value - expected[index]) < 0.5 * 10 ** -decimals * unit;
+    })
+  );
+}
+
+function supportsDerivedOfferingScale(
+  sentence: string,
+  quotes: string,
+  unsupported: string[],
+) {
+  if (unsupported.length > 1 || !/按认购价格/.test(sentence) || !/计算/.test(sentence))
+    return false;
+  const prices = [...quotes.matchAll(/(\d+(?:\.\d+)?)元\/份/g)];
+  const shares = quotes.match(
+    /(?:发售份额总额|发售总份额|发售基金份额总额|份额总量)(?:为)?(\d+(?:\.\d+)?)(亿|万)份/,
+  );
+  const scale = sentence.normalize('NFKC').replace(/[,\s]/g, '').match(
+    /募集资金总额(?:为|约为)?(\d+(?:\.\d+)?)(亿|万)元/,
+  );
+  if (prices.length !== 1 || !shares || !scale ||
+      (unsupported.length === 1 && unsupported[0] !== scale[1]))
+    return false;
+  const expected = Number(prices[0][1]) * Number(shares[1]) *
+    (shares[2] === '万' ? 1e-4 : 1);
+  const unit = scale[2] === '万' ? 1e-4 : 1;
+  const actual = Number(scale[1]) * unit;
+  const decimals = scale[1].split('.')[1]?.length || 0;
+  return Math.abs(actual - expected) < 0.5 * 10 ** -decimals * unit;
+}
+
 function isGranularReplyParameterChange(value: string) {
   return (
     containsNumber(value) &&
@@ -574,7 +754,21 @@ function orderDetailSentences(sentences: string[], stage: string) {
     .map(({ sentence }) => sentence);
 }
 
+function briefMaximumLength(stage: string) {
+  if (stage === '反馈/问询') return 450;
+  if (stage === '询价' || stage === '发售') return 600;
+  return 400;
+}
+
 function stageSentenceRank(sentence: string, stage: string) {
+  if (stage === '反馈/问询') {
+    if (/其余还包括|此外还包括|其他反馈意见|其他反馈问题|其他问询问题/.test(sentence))
+      return 2;
+    if (/原始权益人|底层资产|基础设施项目|项目位于|建筑面积|装机容量/.test(sentence) &&
+        !/资质及履职能力/.test(sentence))
+      return 3;
+    return 1;
+  }
   if (stage === '认购结果') {
     if (/认购价格|最终募集规模|募集规模/.test(sentence)) return 4;
     if (/初始发售份额|基金份额总额|募集基金份额总额/.test(sentence)) return 1;
@@ -584,9 +778,20 @@ function stageSentenceRank(sentence: string, stage: string) {
     return 5;
   }
   if (stage === '询价') {
-    return /底层资产|基础设施项目|不动产项目|项目所在地|项目位于/.test(sentence)
-      ? 2
-      : 1;
+    if (/证监许可|募集注册|基金代码/.test(sentence)) return 1;
+    if (/询价区间|询价日|募集期|元\/份/.test(sentence) && !/按询价区间上下限计算/.test(sentence)) return 2;
+    if (/战略配售|网下发售|公众投资者|初始份额|发售份额总额/.test(sentence)) return 3;
+    if (/募集资金总额|募集资金规模|募集规模/.test(sentence)) return 4;
+    if (/原始权益人|底层资产|基础设施项目|不动产项目|项目所在地|项目位于|建筑面积|装机容量/.test(sentence)) return 5;
+    return 4;
+  }
+  if (stage === '发售') {
+    if (/证监许可|募集注册|基金代码/.test(sentence)) return 1;
+    if (/募集资金总额|募集规模/.test(sentence)) return 4;
+    if (/战略配售|网下发售|公众投资者|初始份额/.test(sentence)) return 3;
+    if (/认购价格|运作方式|存续期限|发售份额总额|发售总份额/.test(sentence)) return 2;
+    if (/原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|装机容量/.test(sentence)) return 5;
+    return 4;
   }
   if (stage === '回复反馈') {
     if (/估值参数|出租率|租金增长率|长期增长率|租金收缴率|收缴率|折现率/.test(sentence))
@@ -617,7 +822,7 @@ export function isCompleteBrief(value: string) {
 
 export function isBriefDisplayable(value: string, stage: string) {
   const length = Array.from(value.replace(/\s/g, '')).length;
-  return isCompleteBrief(value) && (stage !== '反馈/问询' || length <= 280);
+  return isCompleteBrief(value) && (stage !== '反馈/问询' || length <= briefMaximumLength(stage));
 }
 
 export function isCurrentBriefDisplayable(
@@ -625,7 +830,7 @@ export function isCurrentBriefDisplayable(
   stage: string,
   version?: string,
 ) {
-  return version === BRIEF_RULES_VERSION && isBriefDisplayable(value, stage);
+  return version === briefRulesVersionFor(stage) && isBriefDisplayable(value, stage);
 }
 
 export function validateBrief(
@@ -637,7 +842,7 @@ export function validateBrief(
   validateOpeningSentence(value, record);
   const length = Array.from(value.replace(/\s/g, '')).length;
   const minimum = 25;
-  const maximum = record.progressType === '反馈/问询' ? 280 : 400;
+  const maximum = briefMaximumLength(record.progressType);
   if (length < minimum || length > maximum) throw new Error('invalid_length');
   if (/[!！]/.test(value)) throw new Error('invalid_format');
   if (/(^|\s)[-•·]\s|(^|\s)\d+[.、]\s/.test(value))

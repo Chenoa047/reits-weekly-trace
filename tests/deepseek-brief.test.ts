@@ -512,13 +512,13 @@ void test('事实句中的数字必须由该句绑定的原文证据支持', () 
       record,
     ),
     {
-      brief: '9月15日，上交所网站显示，某REIT项目发布基金份额发售公告。',
+      brief: '9月15日，上交所网站显示，某REIT发布基金份额发售公告。',
       evidence: [],
     },
   );
 });
 
-void test('询价阶段的数字只接受询价公告证据', () => {
+void test('询价阶段的发行数字只接受询价公告证据', () => {
   const record = {
     ...submission,
     progressType: '询价',
@@ -541,7 +541,7 @@ void test('询价阶段的数字只接受询价公告证据', () => {
     ],
   };
   const claim = '询价公告披露，本次询价区间为2.300元/份至2.500元/份';
-  const brief = `9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。${claim}。`;
+  const brief = `9月15日，上交所网站显示，某REIT发布基金份额询价公告。${claim}。`;
   assert.deepEqual(
     parseBriefResponse(
       JSON.stringify({
@@ -557,7 +557,7 @@ void test('询价阶段的数字只接受询价公告证据', () => {
       record,
     ),
     {
-      brief: '9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。',
+      brief: '9月15日，上交所网站显示，某REIT发布基金份额询价公告。',
       evidence: [],
     },
   );
@@ -621,7 +621,7 @@ void test('询价和发售首句中的基金份额不是发行数据', () => {
   };
   assert.doesNotThrow(() =>
     validateBrief(
-      '9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。',
+      '9月15日，上交所网站显示，某REIT发布基金份额询价公告。',
       pricing,
     ),
   );
@@ -747,7 +747,7 @@ void test('询价简报把招募说明书中的底层资产介绍放在最后', 
   );
   assert.equal(
     parsed.brief,
-    `9月15日，上交所网站显示，某REIT项目发布基金份额询价公告。${pricing}。${asset}。`,
+    `9月15日，上交所网站显示，某REIT发布基金份额询价公告。${pricing}。${asset}。`,
   );
 });
 
