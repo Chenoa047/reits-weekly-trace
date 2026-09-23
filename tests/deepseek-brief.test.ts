@@ -239,7 +239,7 @@ void test('模型输出达到上限后使用精简材料自动重试并累计用
         status: 'completed',
         output_text: JSON.stringify({
           brief: `9月15日，上交所网站显示，某REIT获反馈。${claim}。`,
-          evidence: [{ claim, fileIndex: 1, quote: `${claim}。` }],
+          evidence: [{ claim, fileIndex: 1, quote: '一、项目合规性和估值合理性。' }],
         }),
         usage: { input_tokens: 40, output_tokens: 10 },
       }),
@@ -258,7 +258,7 @@ void test('模型输出达到上限后使用精简材料自动重试并累计用
           kind: '反馈意见',
           originalTitle: '受理反馈意见',
           issuerRole: '交易所',
-          content: `[第2页] ${claim}。\n${'补充材料'.repeat(10_000)}`,
+          content: `[第2页] 一、项目合规性和估值合理性。\n${'补充材料'.repeat(10_000)}`,
         },
       ],
     });
