@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { readCurrentWeekLocalRecords, serializeLocalRecords } from '@/lib/visitor-edits';
 
 type ReitsFile = {
   label: string;
@@ -80,11 +81,20 @@ type BlackboardThread = {
   updatedAt: string;
 };
 
-const localKey = 'reits-live-visitor-edits-v2';
+const localKey = 'reits-live-visitor-edits-v3';
+const legacyLocalKey = 'reits-live-visitor-edits-v2';
 const visitorArchiveKey = 'reits-visitor-local-archives-v1';
 const blackboardKey = 'reits-blackboard-demo-v2';
 const blackboardVisitorKey = 'reits-blackboard-demo-visitor-v1';
 const blackboardUpdateEvent = 'reits-blackboard-demo-update';
+
+function saveLocalRecords(
+  records: ReitsRecord[],
+  range: { start: string; end: string } | undefined,
+) {
+  if (!range) return;
+  localStorage.setItem(localKey, serializeLocalRecords(records, range));
+}
 
 export default function Home() {
   const [payload, setPayload] = useState<ApiPayload | null>(null);
@@ -161,8 +171,10 @@ export default function Home() {
         return;
       }
       setPayload(data);
-      const local = localStorage.getItem(localKey);
-      setRecords(local ? JSON.parse(local) : data.records);
+      const local =
+        readCurrentWeekLocalRecords<ReitsRecord>(localStorage.getItem(localKey), data.range) ||
+        readCurrentWeekLocalRecords<ReitsRecord>(localStorage.getItem(legacyLocalKey), data.range);
+      setRecords(local ?? data.records);
     } catch {
       setMessage('数据读取失败，请稍后刷新。');
     } finally {
@@ -173,7 +185,7 @@ export default function Home() {
   function updateLocalRecord(id: string, patch: Partial<ReitsRecord>) {
     const next = records.map((record) => (record.id === id ? { ...record, ...patch } : record));
     setRecords(next);
-    localStorage.setItem(localKey, JSON.stringify(next));
+    saveLocalRecords(next, payload?.range);
   }
 
   function openCompareRecord(record: ReitsRecord) {
@@ -205,11 +217,12 @@ export default function Home() {
       ...records,
     ];
     setRecords(next);
-    localStorage.setItem(localKey, JSON.stringify(next));
+    saveLocalRecords(next, payload?.range);
   }
 
   function clearLocalChanges() {
     localStorage.removeItem(localKey);
+    localStorage.removeItem(legacyLocalKey);
     setRecords(payload?.records || []);
     setLocalEdit(false);
     setCompareRecord(null);
@@ -236,7 +249,7 @@ export default function Home() {
 
   function loadVisitorArchive(archive: VisitorArchive) {
     setRecords(archive.records);
-    localStorage.setItem(localKey, JSON.stringify(archive.records));
+    saveLocalRecords(archive.records, { start: archive.weekStart, end: archive.weekEnd });
     setLocalEdit(true);
     setMessage(`已载入 ${dotDate(archive.weekStart)} - ${dotDate(archive.weekEnd)} 的访客本地归档。`);
   }
