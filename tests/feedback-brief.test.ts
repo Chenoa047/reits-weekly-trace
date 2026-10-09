@@ -130,3 +130,30 @@ void test('其他反馈不能引用前面大项，资产不能引用交易所原
   );
   assert.equal(invalidAsset.evidence.length, 0);
 });
+
+void test('银泰二轮反馈概括本轮七项主题，不沿用首轮答复的估值调整', () => {
+  const headings = [
+    '一、关于合规情况。', '二、关于资产剥离。', '三、关于关联交易。',
+    '四、关于租约集中到期。', '五、关于增长率。', '六、关于出租率。',
+    '七、关于项目品牌使用。',
+  ];
+  const main = '反馈意见主要围绕合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率及项目品牌使用等方面展开';
+  const stale = '不动产项目整体评估值由42.73亿元调整为42.15亿元，调整幅度为-1.36%';
+  const incoming = {
+    ...record, shortName: '华夏银泰百货REIT', updateDate: '2026-10-08',
+    files: [
+      { ...record.files[0], content: `[第1页] ${headings.slice(0, 1).join('')}\n[第2页] ${headings.slice(1, 5).join('')}\n[第3页] ${headings.slice(5).join('')}` },
+      { ...record.files[0], kind: '回复反馈', issuerRole: '原始权益人', url: 'https://example.com/old-reply.pdf', content: `[第10页] ${stale}。` },
+    ],
+  };
+  const parsed = parseBriefResponse(JSON.stringify({
+    brief: `${canonicalBriefOpening(incoming)}。${main}。${stale}。`,
+    evidence: [
+      ...headings.map((quote) => ({ claim: main, fileIndex: 1, quote })),
+      { claim: stale, fileIndex: 2, quote: `${stale}。` },
+    ],
+  }), incoming);
+  assert.equal(parsed.brief, `${canonicalBriefOpening(incoming)}。${main}。`);
+  assert.equal(parsed.evidence.length, 7);
+  assert.doesNotMatch(parsed.brief, /进行了答复|42\.73|42\.15|此外/);
+});

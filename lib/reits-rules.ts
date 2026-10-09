@@ -69,27 +69,35 @@ export function inferProjectStage(
   status: string,
   files: ReitsSourceFile[],
 ): string {
-  if (status === '已反馈' || status === '已问询') {
+  if (status === '已反馈' || status === '已问询' || status === '已回复交易所意见') {
     const sectionFiles = files.filter(
       (file) =>
         file.section === '反馈意见及回复' || file.section === '问询与回复',
     );
-    const hasExchangeQuestion = sectionFiles.some(
+    const questions = latestReviewFiles(sectionFiles.filter(
       (file) =>
         (file.kind === '反馈意见' || file.kind === '问询函') &&
         file.issuerRole !== '原始权益人',
-    );
-    const hasOriginatorReply = sectionFiles.some(
+    ));
+    const replies = latestReviewFiles(sectionFiles.filter(
       (file) =>
         file.kind === '回复反馈' && file.issuerRole !== '交易所',
-    );
-    return hasExchangeQuestion && hasOriginatorReply ? '回复反馈' : '反馈/问询';
+    ));
+    const questionDate = questions[0]?.publishedAt?.slice(0, 10);
+    const replyDate = replies[0]?.publishedAt?.slice(0, 10);
+    if (questionDate && replyDate && questionDate > replyDate) return '反馈/问询';
+    if (status === '已回复交易所意见') return '回复反馈';
+    return questions.length && replies.length ? '回复反馈' : '反馈/问询';
   }
-  if (status === '已回复交易所意见') return '回复反馈';
   if (status === '已受理') return '受理';
   if (status === '已申报') return '申报';
   if (status === '注册生效') return '注册生效';
   return status;
+}
+
+function latestReviewFiles(files: ReitsSourceFile[]) {
+  const latestDate = files.map((file) => file.publishedAt?.slice(0, 10) || '').sort().at(-1);
+  return latestDate ? files.filter((file) => file.publishedAt?.slice(0, 10) === latestDate) : files;
 }
 
 export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
@@ -112,15 +120,15 @@ export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
         (file.kind === '反馈意见' || file.kind === '问询函') &&
         file.issuerRole !== '原始权益人',
     );
-    return present([...exchangeQuestions, latest('招募说明书')]);
+    return present([...latestReviewFiles(exchangeQuestions), latest('招募说明书')]);
   }
   if (stage === '回复反馈') {
-    return files.filter(
+    return latestReviewFiles(files.filter(
       (file) =>
         (file.section === '反馈意见及回复' || file.section === '问询与回复') &&
         file.kind === '回复反馈' &&
         file.issuerRole !== '交易所',
-    );
+    ));
   }
   if (stage === '询价') return present([latest('询价'), latest('招募说明书')]);
   if (stage === '发售') return present([latest('发售'), latest('招募说明书')]);

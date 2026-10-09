@@ -63,6 +63,41 @@ void test('反馈问询只用交易所原函归纳问题，招募说明书仅作
   ]);
 });
 
+void test('银泰第二轮反馈晚于首轮答复时不能判为回复反馈', () => {
+  const firstQuestion = file('申请受理反馈意见.pdf', '反馈意见及回复', '2026-08-21');
+  const firstReply = file('关于申请受理反馈意见的答复.pdf', '反馈意见及回复', '2026-09-18');
+  const secondQuestion = file('关于华夏银泰百货封闭式商业不动产证券投资基金上市申请受理第二轮反馈意见.pdf', '反馈意见及回复', '2026-10-08');
+  firstQuestion.issuerRole = secondQuestion.issuerRole = '交易所';
+  firstReply.issuerRole = '原始权益人';
+  for (const status of ['已反馈', '已问询', '已回复交易所意见']) {
+    assert.equal(inferProjectStage(status, [firstReply, secondQuestion, firstQuestion]), '反馈/问询');
+  }
+  assert.equal(secondQuestion.kind, '反馈意见');
+});
+
+void test('第二轮答复更新后才进入回复阶段', () => {
+  const question = file('第二轮审核问询函.pdf', '问询与回复', '2026-10-08');
+  const reply = file('第二轮审核问询函的回复.pdf', '问询与回复', '2026-10-09');
+  question.issuerRole = '交易所';
+  reply.issuerRole = '原始权益人';
+  assert.equal(inferProjectStage('已问询', [reply, question]), '回复反馈');
+});
+
+void test('二轮反馈只选择最新交易所原函和最新招募说明书', () => {
+  const first = file('申请受理反馈意见.pdf', '反馈意见及回复', '2026-08-21');
+  const reply = file('申请受理反馈意见的答复.pdf', '反馈意见及回复', '2026-09-18');
+  const second = file('申请受理第二轮反馈意见.pdf', '反馈意见及回复', '2026-10-08');
+  const prospectus = file('招募说明书.pdf', '项目申报材料', '2026-09-18');
+  assert.deepEqual(selectStageFiles('反馈/问询', [first, reply, second, prospectus]), [second, prospectus]);
+});
+
+void test('回复阶段不混入更早轮次的答复，但保留同日配套回复', () => {
+  const old = file('申请受理反馈意见的答复.pdf', '反馈意见及回复', '2026-09-18');
+  const latest = file('申请受理第二轮反馈意见的答复.pdf', '反馈意见及回复', '2026-10-09');
+  const companion = { ...latest, originalTitle: '第二轮反馈意见的答复附件.pdf', url: 'https://example.com/companion.pdf' };
+  assert.deepEqual(selectStageFiles('回复反馈', [old, latest, companion]), [latest, companion]);
+});
+
 void test('已受理与注册生效只选择日期最新的招募说明书', () => {
   const oldFile = file('招募说明书草案.pdf', '项目申报材料', '2026-07-01');
   const latestFile = file(
