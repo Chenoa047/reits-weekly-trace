@@ -1,4 +1,6 @@
 import { briefFailureUsage, preserveBriefUsage } from './brief-failure.ts';
+import { selectRelevantText } from './pdf-text.ts';
+import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
 
 type BriefMaterial = {
   exchange: string;
@@ -26,11 +28,13 @@ export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
 const FEEDBACK_BRIEF_RULES_VERSION = '2026-09-22-feedback-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
+const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v1';
 
 export function briefRulesVersionFor(stage: string) {
   if (stage === '询价') return INQUIRY_BRIEF_RULES_VERSION;
   if (stage === '反馈/问询') return FEEDBACK_BRIEF_RULES_VERSION;
   if (stage === '发售') return OFFERING_BRIEF_RULES_VERSION;
+  if (stage === '回复反馈') return REPLY_BRIEF_RULES_VERSION;
   return BRIEF_RULES_VERSION;
 }
 
@@ -175,7 +179,7 @@ async function requestDeepSeekBrief(
 
 function isRetryableBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
-  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
+  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
     message,
   );
 }
@@ -233,6 +237,8 @@ function buildInstructions(record: BriefMaterial, compact = false) {
         ? '\n本次为精简重试：保持询价六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
         : record.progressType === '发售'
           ? '\n本次为精简重试：保持发售六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
+        : record.progressType === '回复反馈'
+          ? '\n本次为精简重试：压缩估值描述，保留原文中的其他主要回复主题，以“此外，回复报告还就……”另写一个概括句；不能因精简删除其他回复事项，每个主题分别引用对应页的原文，evidence条数不限于4条。原文确实只有估值内容时不补写。'
         : '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
       : ''
   }`;
@@ -261,7 +267,9 @@ function buildMaterial(record: BriefMaterial, compact = false) {
 正文摘录：${
           file.content
             ? compact
-              ? file.content.slice(0, compactLimit)
+              ? record.progressType === '回复反馈'
+                ? selectRelevantText(file.content, record.progressType, compactLimit)
+                : file.content.slice(0, compactLimit)
               : file.content
             : '未成功读取，不得引用该文件中的事实'
         }`,
@@ -280,7 +288,7 @@ function stageInstruction(record: BriefMaterial) {
     受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
       '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。随后只用一个完整句子概括交易所原函中“一、二、三……”等一级大标题涉及的主要方面，到“等方面展开”或同义表述即止；绝对不要再接“包括……”列举细分问题，也不要另起一句列举大标题下的小标题、具体问题或案例。接着仅依据原函最后一大项“其他反馈意见”“其他反馈问题”或“其他问询问题”，用“其余还包括……”概括其中少量主要事项；不得从前面各大项抽取细分问题充作“其余”。简报结尾依据该项目最新招募说明书，介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息；资产介绍只引用招募说明书，不能引用交易所原函、回复文件或自行补写。缺少对应原文时不补写。',
-    回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。第一句之后的全部事实只能依据原始权益人或申报方提交给交易所的答复/回复PDF，不能引用交易所发出的反馈意见或审核问询函。先概括调整涉及的估值参数类别，不展开每项参数调整前后的具体数值；随后只写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后概括业务参与人资质及履约能力、历史合规手续、土地用途、关联方租赁、运营管理费、治理机制、回收资金安排等回复文件实际涉及的其他主题。',
+    回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。第一句之后的全部事实只能依据原始权益人或申报方提交给交易所的答复/回复PDF，不能引用交易所发出的反馈意见或审核问询函。先概括调整涉及的估值参数类别，不展开每项参数调整前后的具体数值；随后写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后必须另写“此外，回复报告还就……等问题进行了答复”，概括该文件实际涉及的其他主要回复主题，不能只写估值。主题可涉及业务参与人资质及履约能力、历史合规手续、土地用途、关联方租赁、项目经营与财务、运营管理费、治理机制、回收资金安排等，但不得机械照搬这些示例。多个主题可合并为一句，同一句的每个主题都需提供相应回复PDF原文证据，不限制为一条证据。原文未披露估值调整时跳过估值部分；原文确实只有估值内容时不补写其他事项。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
     询价: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额询价公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②询价区间、询价日及具体时间、预计基金份额募集期；③本次发售份额总额、战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按询价区间上下限与本次发售总份额计算的募集资金总额区间，注明为按上下限计算，单位和小数精度须核对；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。发行数据与注册文号、基金代码只能引用询价公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
     发售: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额发售公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②发售认购价格、基金运作方式、存续期限、本次发售份额总额；③战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按认购价格乘以本次发售份额总额计算募集资金总额，写明“按认购价格和发售份额总额计算”，并核对单位和小数精度；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。注册文号、基金代码、发行安排和份额数据只能引用发售公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
@@ -877,6 +885,20 @@ export function validateBrief(
     /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value)
   )
     throw new Error('invalid_format');
+  if (record.progressType === '回复反馈') {
+    const replyFiles = record.files.filter((file) =>
+      file.kind === '回复反馈' && file.issuerRole !== '交易所');
+    const otherTopics = REPLY_OTHER_TOPICS.filter((topic) =>
+      replyFiles.some((file) => topic.test(file.content || '')));
+    const hasOtherReplies = value.split('。').slice(1).some((sentence) =>
+      !/估值|评估值|评估参数|折现率|联营扣率/.test(sentence) &&
+      otherTopics.some((topic) => topic.test(sentence) &&
+        (evidence === undefined || evidence.some((item) =>
+          normalizeClaim(item.claim) === sentence && topic.test(item.quote) &&
+          replyFiles.some((file) => file.url === item.fileUrl)))));
+    if (otherTopics.length && !hasOtherReplies)
+      throw new Error('missing_reply_other_topics');
+  }
   if (evidence === undefined) validateNumbers(value, record);
 }
 

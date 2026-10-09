@@ -54,7 +54,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
   assert.equal(briefRulesVersionFor('反馈/问询'), '2026-09-22-feedback-v2');
-  assert.equal(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
+  assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
       { ...record, brief: result.brief, briefRulesVersion: BRIEF_RULES_VERSION },

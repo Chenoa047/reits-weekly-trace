@@ -1,5 +1,6 @@
 import type { ReitsSourceFile } from '@/lib/reits-rules';
 import { describeFetchError } from './fetch-error.ts';
+import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
 
 const MAX_PAGES = 600;
 const MAX_TOTAL_EXCERPT_CHARS = 45_000;
@@ -116,6 +117,7 @@ function pdfReferer(url: string) {
 export function selectRelevantText(text: string, stage: string, limit: number) {
   if (text.length <= limit) return text;
   if (stage === '反馈/问询') return selectFeedbackText(text, limit);
+  if (stage === '回复反馈') return selectReplyText(text, limit);
   const keywords: Record<string, string[]> = {
     受理: [
       '原始权益人',
@@ -146,7 +148,6 @@ export function selectRelevantText(text: string, stage: string, limit: number) {
       '建筑面积',
       '可供出租面积',
     ],
-    回复反馈: ['回复', '评估基准日', '评估值', '出租率', '折现率', '现金流'],
     询价: ['证监许可', '基金代码', '询价区间', '询价日', '募集期', '发售份额', '战略配售', '网下发售', '公众投资者'],
     询价资产: ['底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积', '装机容量', '原始权益人'],
     反馈资产: ['底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积', '装机容量', '原始权益人'],
@@ -173,6 +174,26 @@ export function selectRelevantText(text: string, stage: string, limit: number) {
   }
   windows.push(text.slice(0, Math.min(8_000, limit)));
   return [...new Set(windows)].join('\n').slice(0, limit);
+}
+
+function selectReplyText(text: string, limit: number) {
+  const topics = [
+    /(?:整体|合计)评估值|评估值.{0,40}\d|估值.{0,20}(?:下降|上升|调整)/,
+    /估值参数|联营扣率|出租率|租金增长率|长期增长率|收缴率|折现率/,
+    ...REPLY_OTHER_TOPICS,
+  ];
+  const indices = [...new Set(topics.flatMap((topic) => {
+    const matches = [...text.matchAll(new RegExp(topic.source, 'g'))];
+    return matches.length ? [matches[0].index, matches.at(-1)!.index] : [];
+  }))];
+  if (!indices.length) return text.slice(0, limit);
+  const perTopicLimit = Math.floor(limit / indices.length) - 20;
+  return indices.sort((left, right) => left - right).map((index) => {
+    const start = Math.max(0, index - Math.min(200, Math.floor(perTopicLimit / 4)));
+    const excerpt = text.slice(start, start + perTopicLimit);
+    const pageMarker = text.slice(0, start).match(/\[第\d+页\]/g)?.at(-1);
+    return pageMarker && !excerpt.startsWith('[第') ? `${pageMarker} ${excerpt}` : excerpt;
+  }).join('\n').slice(0, limit);
 }
 
 function selectFeedbackText(text: string, limit: number) {

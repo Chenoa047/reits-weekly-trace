@@ -12,7 +12,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "test:rules": "node --experimental-strip-types --test tests/reits-rules.test.ts tests/pdf-text.test.ts tests/szse-announcements.test.ts tests/visitor-edits.test.ts",
-    "test:brief": "node --experimental-strip-types --test tests/deepseek-brief.test.ts tests/brief-failure.test.ts tests/inquiry-brief.test.ts tests/feedback-brief.test.ts tests/offering-brief.test.ts",
+    "test:brief": "node --experimental-strip-types --test tests/deepseek-brief.test.ts tests/brief-failure.test.ts tests/inquiry-brief.test.ts tests/feedback-brief.test.ts tests/offering-brief.test.ts tests/reply-brief.test.ts",
     "test:jobs": "node --experimental-strip-types --test tests/refresh-runs.test.ts tests/refresh-error.test.ts tests/reits-network-error.test.ts tests/refresh-brief.test.ts",
     "test": "npm run test:rules && npm run test:brief && npm run test:jobs",
     "refresh": "tsx scripts/run-refresh.ts",
