@@ -81,6 +81,13 @@ void test('回复新规则使旧估值摘要重新生成，其他阶段版本保
   assert.equal(needsBriefRegeneration({ ...record, brief: parse([valuation]).brief, briefRulesVersion: BRIEF_RULES_VERSION }, record), true);
 });
 
+void test('第二轮回复在首句明确答复对象，首轮旧文案需要重新生成', () => {
+  const incoming = { ...record, files: [{ ...record.files[0], originalTitle: '第二轮反馈意见的答复.pdf' }] };
+  assert.equal(canonicalBriefOpening(incoming), '10月8日，上交所网站显示，测试REIT项目就第二轮反馈意见进行了答复');
+  assert.equal(canonicalBriefOpening({ ...incoming, exchange: '深交所' }), '10月8日，深交所网站显示，测试REIT项目就第二轮审核问询函进行了答复');
+  assert.equal(needsBriefRegeneration({ ...incoming, brief: parse([valuation, other]).brief, briefRulesVersion: '2026-10-09-reply-v1' }, incoming), true);
+});
+
 void test('长回复报告均衡保留估值与后部其他事项，精简重试也不遗漏', () => {
   const text =
     `[第1页] ${'本反馈意见回复情况如下。'.repeat(2_000)}\n` +

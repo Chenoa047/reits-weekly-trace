@@ -26,6 +26,7 @@ import {
   documentLabel,
   inferProjectStage,
   missingRequiredMaterial,
+  reviewRoundFor,
   selectStageFiles,
   type OfferingType,
   type ReitsSourceFile,
@@ -697,7 +698,7 @@ async function mapSzseProject(
     exchange: '深交所',
     fullName: project.cmpnm,
     shortName,
-    title: titleFor(shortName, progressType, '深交所', offeringType),
+    title: titleFor(shortName, progressType, '深交所', offeringType, reviewRoundFor(progressType, files)),
     status,
     progressType,
     offeringType,
@@ -776,7 +777,7 @@ async function mapSseProject(
   const offeringType: OfferingType =
     project.REITS_TYPE === '1' ? '扩募' : '首发';
   const shortName = briefName(project.AUDIT_NAME);
-  const title = titleFor(shortName, progressType, '上交所', offeringType);
+  const title = titleFor(shortName, progressType, '上交所', offeringType, reviewRoundFor(progressType, files));
   const selectedFiles = selectStageFiles(progressType, files);
   const feedbackFiles = selectedFiles.filter(
     (file) => file.kind !== '招募说明书',
@@ -1192,13 +1193,14 @@ function titleFor(
   progressType: string,
   exchange: string,
   offeringType: OfferingType,
+  round = '',
 ) {
   const actionName = offeringType === '扩募' ? `${shortName}扩募` : shortName;
   if (progressType === '反馈/问询')
     return exchange === '深交所'
-      ? `${actionName}获深交所问询`
-      : `${actionName}获上交所反馈意见`;
-  if (progressType === '回复反馈') return `${actionName}回复反馈`;
+      ? `${actionName}获深交所${round}问询`
+      : `${actionName}获上交所${round}反馈意见`;
+  if (progressType === '回复反馈') return `${actionName}${round}回复反馈`;
   if (progressType === '受理') return `${actionName}获受理`;
   if (progressType === '申报') return `${actionName}申报至${exchange}`;
   if (progressType === '注册生效') return `${actionName}获批`;

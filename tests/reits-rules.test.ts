@@ -5,6 +5,7 @@ import {
   classifyDocument,
   inferProjectStage,
   missingRequiredMaterial,
+  reviewRoundFor,
   selectStageFiles,
   type ReitsSourceFile,
 } from '../lib/reits-rules.ts';
@@ -81,6 +82,22 @@ void test('第二轮答复更新后才进入回复阶段', () => {
   question.issuerRole = '交易所';
   reply.issuerRole = '原始权益人';
   assert.equal(inferProjectStage('已问询', [reply, question]), '回复反馈');
+});
+
+void test('反馈和回复轮次分别取自本阶段最新原文件，未标轮次时不猜测', () => {
+  const first = file('第一轮审核问询函的回复.pdf', '问询与回复', '2026-09-18');
+  const second = file('第二轮审核问询函.pdf', '问询与回复', '2026-10-08');
+  const secondReply = file('第2次审核问询函的回复.pdf', '问询与回复', '2026-10-09');
+  assert.equal(reviewRoundFor('反馈/问询', [first, second]), '第二轮');
+  assert.equal(reviewRoundFor('回复反馈', [first, second, secondReply]), '第二轮');
+  const companion = file('答复附件.pdf', '问询与回复', '2026-10-09');
+  companion.kind = '回复反馈';
+  assert.equal(reviewRoundFor('回复反馈', [companion, first, secondReply]), '第二轮');
+  assert.equal(reviewRoundFor('回复反馈', [file('二次反馈意见的回复.pdf')]), '第二轮');
+  assert.equal(reviewRoundFor('反馈/问询', [file('第三轮审核问询函.pdf')]), '第三轮');
+  assert.equal(reviewRoundFor('回复反馈', [first, file('反馈意见的答复.pdf', '问询与回复', '2026-10-09')]), '');
+  assert.equal(reviewRoundFor('回复反馈', [file('反馈意见的答复.pdf')]), '');
+  assert.equal(reviewRoundFor('受理', [second]), '');
 });
 
 void test('二轮反馈只选择最新交易所原函和最新招募说明书', () => {

@@ -1,6 +1,7 @@
 import { briefFailureUsage, preserveBriefUsage } from './brief-failure.ts';
 import { selectRelevantText } from './pdf-text.ts';
 import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
+import { reviewRoundFor } from './reits-rules.ts';
 
 type BriefMaterial = {
   exchange: string;
@@ -26,9 +27,9 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-09-22-feedback-v2';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-09-feedback-v3';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
-const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v1';
+const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v2';
 
 export function briefRulesVersionFor(stage: string) {
   if (stage === '询价') return INQUIRY_BRIEF_RULES_VERSION;
@@ -217,6 +218,7 @@ export function needsBriefRegeneration(
 }
 
 function buildInstructions(record: BriefMaterial, compact = false) {
+  const round = reviewRoundFor(record.progressType, record.files);
   return `你是公募REITs行业周报撰写助手。只依据用户提供的交易所页面、公告和文件摘录撰写一段中文简报正文，不得调用外部知识。
 
 通用规则：
@@ -231,7 +233,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
 10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
-本条阶段规则：${stageInstruction(record)}${
+本条阶段规则：${stageInstruction(record)}${round ? `\n本次为${round}${record.progressType === '回复反馈' ? '回复' : '反馈/问询'}，首句必须明确轮次，只概括本轮原文件，不沿用此前轮次的事实。` : ''}${
     compact
       ? record.progressType === '询价'
         ? '\n本次为精简重试：保持询价六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
@@ -440,14 +442,15 @@ export function canonicalBriefOpening(record: BriefMaterial) {
       ? record.shortName
       : `${record.shortName}${expansion}项目`;
   const prefix = `${date}，${record.exchange}网站显示，${subject}`;
+  const round = reviewRoundFor(record.progressType, record.files);
   const actions: Record<string, string> = {
     申报: '状态为“已申报”',
     受理: '状态为“已受理”',
-    '反馈/问询': record.exchange === '深交所' ? '获审核问询' : '获反馈',
+    '反馈/问询': record.exchange === '深交所' ? `获${round}审核问询` : `获${round}反馈`,
     回复反馈:
       record.exchange === '深交所'
-        ? '就审核问询函进行了答复'
-        : '就反馈意见进行了答复',
+        ? `就${round}审核问询函进行了答复`
+        : `就${round}反馈意见进行了答复`,
     注册生效: '状态变更为“注册生效”',
     询价: '发布基金份额询价公告',
     发售: '发布基金份额发售公告',

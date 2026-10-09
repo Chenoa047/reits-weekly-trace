@@ -100,6 +100,22 @@ function latestReviewFiles(files: ReitsSourceFile[]) {
   return latestDate ? files.filter((file) => file.publishedAt?.slice(0, 10) === latestDate) : files;
 }
 
+export function reviewRoundFor(
+  stage: string,
+  files: Array<{ kind: string; originalTitle: string; publishedAt?: string; issuerRole?: string }>,
+) {
+  const applicable = files.filter((file) => stage === '回复反馈'
+    ? file.kind === '回复反馈' && file.issuerRole !== '交易所'
+    : stage === '反馈/问询' && (file.kind === '反馈意见' || file.kind === '问询函') && file.issuerRole !== '原始权益人');
+  const latestDate = applicable.map((file) => file.publishedAt?.slice(0, 10) || '').sort().at(-1);
+  const round = applicable.filter((file) => !latestDate || file.publishedAt?.slice(0, 10) === latestDate)
+    .map((file) => file.originalTitle.replace(/\s/g, '').match(/第?([一二三四五六七八九十\d]+)(?:轮|次)(?:审核)?(?:反馈|问询)/)?.[1])
+    .find(Boolean);
+  if (!round) return '';
+  const label = /^\d+$/.test(round) ? '零一二三四五六七八九十'[Number(round)] || round : round;
+  return `第${label}轮`;
+}
+
 export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
   const latest = (kind: ReitsDocumentKind) =>
     files

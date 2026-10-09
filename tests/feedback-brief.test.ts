@@ -53,7 +53,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-09-22-feedback-v2');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-09-feedback-v3');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -156,4 +156,13 @@ void test('银泰二轮反馈概括本轮七项主题，不沿用首轮答复的
   assert.equal(parsed.brief, `${canonicalBriefOpening(incoming)}。${main}。`);
   assert.equal(parsed.evidence.length, 7);
   assert.doesNotMatch(parsed.brief, /进行了答复|42\.73|42\.15|此外/);
+});
+
+void test('二轮交易所反馈在首句明确轮次，不能写成二轮回复', () => {
+  const incoming = {
+    ...record, shortName: '华夏银泰百货REIT', updateDate: '2026-10-08',
+    files: [{ ...record.files[0], originalTitle: '申请受理第二轮反馈意见.pdf' }],
+  };
+  assert.equal(canonicalBriefOpening(incoming), '10月8日，上交所网站显示，华夏银泰百货REIT项目获第二轮反馈');
+  assert.equal(canonicalBriefOpening({ ...incoming, exchange: '深交所' }), '10月8日，深交所网站显示，华夏银泰百货REIT项目获第二轮审核问询');
 });
