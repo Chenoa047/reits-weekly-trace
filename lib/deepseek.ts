@@ -27,7 +27,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-09-feedback-v3';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-09-feedback-v4';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v2';
 
@@ -180,7 +180,7 @@ async function requestDeepSeekBrief(
 
 function isRetryableBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
-  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
+  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_feedback_topics|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
     message,
   );
 }
@@ -241,6 +241,8 @@ function buildInstructions(record: BriefMaterial, compact = false) {
           ? '\n本次为精简重试：保持发售六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'
         : record.progressType === '回复反馈'
           ? '\n本次为精简重试：压缩估值描述，保留原文中的其他主要回复主题，以“此外，回复报告还就……”另写一个概括句；不能因精简删除其他回复事项，每个主题分别引用对应页的原文，evidence条数不限于4条。原文确实只有估值内容时不补写。'
+        : record.progressType === '反馈/问询'
+          ? '\n本次为精简重试：必须保留本轮原函所有一级标题的主要主题，用一个概括句表达；每个标题分别引用对应页原文，evidence条数不限于4条；资产介绍不能代替反馈主题，不要展开具体问题。'
         : '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
       : ''
   }`;
@@ -348,7 +350,7 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
       item.claim.length < 6 ||
       item.claim.length > 240 ||
       typeof item.quote !== 'string' ||
-      item.quote.length < 8 ||
+      item.quote.length < (record.progressType === '反馈/问询' ? 4 : 8) ||
       item.quote.length > 240
     )
       continue;
@@ -496,10 +498,10 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
       patterns: [/^(?:关于)?基金运作.{0,6}治理(?:机制)?/],
     },
   ] as const;
-  const topics = definitions.flatMap((definition) => {
-    const match = findQuestionTopic(file.content!, definition.patterns);
-    return match ? [{ ...definition, ...match }] : [];
-  });
+  const topics = questionHeadings(file.content).map((heading) => ({
+    ...heading,
+    label: definitions.find((definition) => definition.patterns.some((pattern) => pattern.test(heading.title)))?.label || heading.title.replace(/^关于/, ''),
+  }));
   if (!topics.length) return null;
 
   const documentName = file.kind === '问询函' ? '审核问询函' : '反馈意见';
@@ -540,18 +542,19 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
   return { brief, evidence };
 }
 
-function findQuestionTopic(content: string, patterns: readonly RegExp[]) {
-  for (const pageText of content.split(/(?=\[第\d+页\])/).reverse()) {
+function questionHeadings(content: string) {
+  const topics: Array<{ title: string; page: number; quote: string }> = [];
+  for (const pageText of content.split(/(?=\[第\d+页\])/)) {
     const page = Number(pageText.match(/^\[第(\d+)页\]/)?.[1]);
     if (!page) continue;
-    for (const heading of pageText.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*([^。；\n]{2,55})/g)) {
+    for (const heading of pageText.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}[、.．]\s*([^。；\n]{2,55})/g)) {
       const title = heading[1].normalize('NFKC').replace(/\s/g, '');
-      if (patterns.some((pattern) => pattern.test(title))) {
-        return { page, quote: heading[0].trim() };
-      }
+      if (/^(?:关于)?其他(?:反馈|问询)/.test(title)) return topics;
+      if (topics.some((topic) => topic.title === title)) continue;
+      topics.push({ title, page, quote: heading[0].trim() });
     }
   }
-  return null;
+  return topics;
 }
 
 function summarizeOtherFeedback(content: string) {
@@ -655,7 +658,7 @@ function isOtherFeedbackClaim(value: string) {
 }
 
 function isFeedbackMainSummary(value: string) {
-  return /(?:反馈意见|问询函).{0,12}(?:主要|重点)(?:围绕|关注|涉及)/.test(value) &&
+  return /(?:反馈(?:意见)?|(?:审核)?问询(?:函)?).{0,12}(?:主要|重点)(?:围绕|关注|涉及)/.test(value) &&
     !/包括|具体|其中|例如|分别|逐项/.test(value);
 }
 
@@ -888,6 +891,16 @@ export function validateBrief(
     /(?:^|[。；])(?:[一二三四五六七八九十]+、|\d+[、.])/.test(value)
   )
     throw new Error('invalid_format');
+  if (record.progressType === '反馈/问询') {
+    const question = record.files.find((file) =>
+      (file.kind === '反馈意见' || file.kind === '问询函') && file.issuerRole !== '原始权益人' && file.content);
+    const topics = questionHeadings(question?.content || '');
+    const summaries = value.split('。').slice(1).filter(isFeedbackMainSummary);
+    if (!summaries.length || (evidence !== undefined && !topics.every((topic) =>
+      evidence.some((item) => item.fileUrl === question!.url && summaries.includes(normalizeClaim(item.claim)) &&
+        item.quote.normalize('NFKC').replace(/\s/g, '').includes(topic.quote.normalize('NFKC').replace(/\s/g, ''))))))
+      throw new Error('missing_feedback_topics');
+  }
   if (record.progressType === '回复反馈') {
     const replyFiles = record.files.filter((file) =>
       file.kind === '回复反馈' && file.issuerRole !== '交易所');

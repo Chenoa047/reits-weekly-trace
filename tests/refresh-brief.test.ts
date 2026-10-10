@@ -54,3 +54,15 @@ void test('旧记录属于不同阶段时不沿用其正文', () => {
   assert.equal(result.preserved, false);
   assert.notEqual(result.record.brief, existing.brief);
 });
+
+void test('旧反馈简报只引用招募说明书时不能作为完整反馈保留', () => {
+  const incomplete = {
+    ...existing,
+    brief: '9月21日，上交所网站显示，测试REIT获反馈。原始权益人为甲公司，底层资产为乙项目。',
+    files: [{ label: '招募说明书', kind: '招募说明书' as const, originalTitle: '招募说明书', url: 'https://example.com/prospectus.pdf' }],
+    evidence: [{ fileUrl: 'https://example.com/prospectus.pdf', page: 1, claim: '原始权益人为甲公司，底层资产为乙项目', quote: '原始权益人为甲公司，底层资产为乙项目' }],
+  };
+  const result = briefAfterGenerationFailure(existing, incomplete, '反馈简报主要关注事项不完整');
+  assert.equal(result.preserved, false);
+  assert.doesNotMatch(result.record.brief, /原始权益人|底层资产/);
+});

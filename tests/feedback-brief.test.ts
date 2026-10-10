@@ -7,6 +7,7 @@ import {
   canonicalBriefOpening,
   needsBriefRegeneration,
   parseBriefResponse,
+  validateBrief,
 } from '../lib/deepseek.ts';
 
 const record = {
@@ -53,7 +54,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-09-feedback-v3');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-09-feedback-v4');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -165,4 +166,56 @@ void test('二轮交易所反馈在首句明确轮次，不能写成二轮回复
   };
   assert.equal(canonicalBriefOpening(incoming), '10月8日，上交所网站显示，华夏银泰百货REIT项目获第二轮反馈');
   assert.equal(canonicalBriefOpening({ ...incoming, exchange: '深交所' }), '10月8日，深交所网站显示，华夏银泰百货REIT项目获第二轮审核问询');
+});
+
+const secondRound = {
+  ...record, shortName: '华夏银泰百货REIT', updateDate: '2026-10-08',
+  files: [
+    { ...record.files[0], originalTitle: '第二轮反馈意见.pdf', content:
+      '[第1页] 一、关于合规情况。请说明手续办理情况。\n' +
+      '[第2页] 二、关于资产剥离。三、关于关联交易。四、关于租约集中到期。五、关于增长率。\n' +
+      '[第3页] 六、关于出租率。七、关于项目品牌使用。' },
+    record.files[1],
+  ],
+};
+
+void test('有反馈原文时，仅有进度和资产介绍不能当成完整简报', () => {
+  const asset = '原始权益人为甲公司，底层资产为乙水厂，位于某市';
+  const parsed = parseBriefResponse(JSON.stringify({
+    brief: `${canonicalBriefOpening(secondRound)}。${asset}。`,
+    evidence: [{ claim: asset, fileIndex: 2, quote: '原始权益人为甲公司。底层资产为乙水厂，位于某市。' }],
+  }), secondRound);
+  assert.throws(() => validateBrief(parsed.brief, secondRound, parsed.evidence), /missing_feedback_topics/);
+});
+
+void test('二轮反馈保底直接概括七个实际一级标题，不套用首轮五大类', () => {
+  const result = buildExchangeQuestionFallback(secondRound);
+  assert.ok(result);
+  assert.match(result.brief, /合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率、项目品牌使用等方面展开/);
+  assert.match(result.brief, /原始权益人为甲公司/);
+  assert.doesNotMatch(result.brief, /业务参与人|其余还包括/);
+  assert.deepEqual(result.evidence.slice(0, 7).map((item) => item.page), [1, 2, 2, 2, 2, 3, 3]);
+});
+
+void test('二轮反馈主题句采用自然表述和短标题证据时保留，少引一个主题时拒绝', () => {
+  const main = '第二轮反馈主要围绕合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率及项目品牌使用等方面展开';
+  const headings = ['一、关于合规情况', '二、关于资产剥离', '三、关于关联交易', '四、关于租约集中到期', '五、关于增长率', '六、关于出租率', '七、关于项目品牌使用'];
+  const parsed = parseBriefResponse(JSON.stringify({
+    brief: `${canonicalBriefOpening(secondRound)}。${main}。`,
+    evidence: headings.map((quote) => ({ claim: main, fileIndex: 1, quote })),
+  }), secondRound);
+  assert.equal(parsed.evidence.length, 7);
+  assert.equal(parsed.brief, `${canonicalBriefOpening(secondRound)}。${main}。`);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, secondRound, parsed.evidence));
+  assert.throws(() => validateBrief(parsed.brief, secondRound, parsed.evidence.slice(0, -1)), /missing_feedback_topics/);
+});
+
+void test('通用标题保底不把括号内细项和其他意见内部细项升为一级主题', () => {
+  const incoming = { ...record, files: [{ ...record.files[0], content:
+    '[第1页] 一、关于合规情况。（十一、配套手续）。\n' +
+    '[第2页] 二、其他反馈意见。请补充信息披露。\n[第3页] 一、补充材料要求。' }] };
+  const result = buildExchangeQuestionFallback(incoming);
+  assert.ok(result);
+  assert.match(result.brief, /主要围绕合规情况等方面展开/);
+  assert.doesNotMatch(result.brief, /配套手续|补充材料要求/);
 });
