@@ -47,14 +47,14 @@ const record = {
 void test('保底简报只概括一级标题，其他意见单列，最后介绍招募说明书资产', () => {
   const result = buildExchangeQuestionFallback(record);
   assert.ok(result);
-  assert.match(result.brief, /业务参与人资质及履职能力、不动产项目合规性、项目经营与财务情况、基金运作与治理机制/);
+  assert.match(result.brief, /业务参与人资质及履职能力、不动产项目合规性、项目经营与财务情况和基金运作与治理机制/);
   assert.doesNotMatch(result.brief, /资产评估与估值合理性/);
   assert.match(result.brief, /其余还包括程序合规、信息披露等其他反馈意见/);
   assert.match(result.brief, /原始权益人为甲公司。底层资产为乙水厂，位于某市。$/);
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-09-feedback-v4');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-11-feedback-v5');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -164,8 +164,8 @@ void test('二轮交易所反馈在首句明确轮次，不能写成二轮回复
     ...record, shortName: '华夏银泰百货REIT', updateDate: '2026-10-08',
     files: [{ ...record.files[0], originalTitle: '申请受理第二轮反馈意见.pdf' }],
   };
-  assert.equal(canonicalBriefOpening(incoming), '10月8日，上交所网站显示，华夏银泰百货REIT项目获第二轮反馈');
-  assert.equal(canonicalBriefOpening({ ...incoming, exchange: '深交所' }), '10月8日，深交所网站显示，华夏银泰百货REIT项目获第二轮审核问询');
+  assert.equal(canonicalBriefOpening(incoming), '10月8日，上交所网站显示，华夏银泰百货REIT项目获上交所第二轮反馈意见');
+  assert.equal(canonicalBriefOpening({ ...incoming, exchange: '深交所' }), '10月8日，深交所网站显示，华夏银泰百货REIT项目获深交所第二轮审核问询');
 });
 
 const secondRound = {
@@ -191,23 +191,24 @@ void test('有反馈原文时，仅有进度和资产介绍不能当成完整简
 void test('二轮反馈保底直接概括七个实际一级标题，不套用首轮五大类', () => {
   const result = buildExchangeQuestionFallback(secondRound);
   assert.ok(result);
-  assert.match(result.brief, /合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率、项目品牌使用等方面展开/);
+  assert.match(result.brief, /合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率和项目品牌使用等方面展开/);
   assert.match(result.brief, /原始权益人为甲公司/);
   assert.doesNotMatch(result.brief, /业务参与人|其余还包括/);
   assert.deepEqual(result.evidence.slice(0, 7).map((item) => item.page), [1, 2, 2, 2, 2, 3, 3]);
 });
 
 void test('二轮反馈主题句采用自然表述和短标题证据时保留，少引一个主题时拒绝', () => {
+  const incoming = { ...secondRound, files: [secondRound.files[0]] };
   const main = '第二轮反馈主要围绕合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率及项目品牌使用等方面展开';
   const headings = ['一、关于合规情况', '二、关于资产剥离', '三、关于关联交易', '四、关于租约集中到期', '五、关于增长率', '六、关于出租率', '七、关于项目品牌使用'];
   const parsed = parseBriefResponse(JSON.stringify({
-    brief: `${canonicalBriefOpening(secondRound)}。${main}。`,
+    brief: `${canonicalBriefOpening(incoming)}。${main}。`,
     evidence: headings.map((quote) => ({ claim: main, fileIndex: 1, quote })),
-  }), secondRound);
+  }), incoming);
   assert.equal(parsed.evidence.length, 7);
-  assert.equal(parsed.brief, `${canonicalBriefOpening(secondRound)}。${main}。`);
-  assert.doesNotThrow(() => validateBrief(parsed.brief, secondRound, parsed.evidence));
-  assert.throws(() => validateBrief(parsed.brief, secondRound, parsed.evidence.slice(0, -1)), /missing_feedback_topics/);
+  assert.equal(parsed.brief, `${canonicalBriefOpening(incoming)}。${main}。`);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, incoming, parsed.evidence));
+  assert.throws(() => validateBrief(parsed.brief, incoming, parsed.evidence.slice(0, -1)), /missing_feedback_topics/);
 });
 
 void test('通用标题保底不把括号内细项和其他意见内部细项升为一级主题', () => {
@@ -218,4 +219,74 @@ void test('通用标题保底不把括号内细项和其他意见内部细项升
   assert.ok(result);
   assert.match(result.brief, /主要围绕合规情况等方面展开/);
   assert.doesNotMatch(result.brief, /配套手续|补充材料要求/);
+});
+
+const assetQuote = '本基金拟持有的不动产项目为位于安徽省合肥市庐阳区的合肥银泰中心一期及二期购物中心项目。';
+const landQuotes = ['土地使用权面积 18,323.77 平方米', '土地使用权面积 11,000.83 平方米'];
+const mainTopics = '反馈意见主要围绕合规情况、资产剥离、关联交易、租约集中到期、增长率、出租率和项目品牌使用等方面展开，要求进一步补充说明或充分披露';
+const assetClaim = '招募说明书草案显示，该项目底层资产为位于安徽省合肥市庐阳区的合肥银泰中心一期及二期购物中心项目，两期土地使用权面积合计约2.93万平方米';
+const approvedRecord = { ...secondRound, files: [secondRound.files[0], {
+  ...secondRound.files[1], content: `[第62页] ${assetQuote}\n${landQuotes.join('\n')}\n一期登记建筑面积101,474.25平方米。`,
+}] };
+function approvedResponse(asset = assetClaim, main = mainTopics) {
+  return JSON.stringify({ brief: `${canonicalBriefOpening(approvedRecord)}。${main}。${asset}。`, evidence: [
+    ...['一、关于合规情况', '二、关于资产剥离', '三、关于关联交易', '四、关于租约集中到期', '五、关于增长率', '六、关于出租率', '七、关于项目品牌使用'].map(quote => ({ claim: main, fileIndex: 1, quote })),
+    ...[assetQuote, ...landQuotes].map(quote => ({ claim: asset, fileIndex: 2, quote })),
+  ] });
+}
+
+void test('确认稿保留交易所、七项主题、具体资产位置和同口径面积合计换算', () => {
+  const parsed = parseBriefResponse(approvedResponse(), approvedRecord);
+  assert.equal(parsed.brief, `${canonicalBriefOpening(approvedRecord)}。${mainTopics}。${assetClaim}。`);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, approvedRecord, parsed.evidence));
+});
+
+void test('不能仅在证据中列出七项标题而正文只写增长率', () => {
+  const parsed = parseBriefResponse(approvedResponse(assetClaim, '反馈意见主要围绕增长率等方面展开'), approvedRecord);
+  assert.throws(() => validateBrief(parsed.brief, approvedRecord, parsed.evidence), /missing_feedback_topics/);
+});
+
+void test('资产介绍不保留无关现金流描述，也不把登记建筑面积换成占地面积', () => {
+  const extra = '，项目现金流来源分散，不存在重要现金流提供方';
+  const incoming = { ...approvedRecord, files: [approvedRecord.files[0], { ...approvedRecord.files[1], content: approvedRecord.files[1].content + extra }] };
+  const plainAsset = assetClaim.split('，两期')[0];
+  const mixed = plainAsset + extra;
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${mixed}。`, evidence: [{ claim: mixed, fileIndex: 2, quote: assetQuote + extra }] }), { ...incoming, files: [incoming.files[0], { ...incoming.files[1], content: `[第62页] ${assetQuote + extra}` }] });
+  assert.doesNotMatch(parsed.brief, /现金流|重要现金流提供方/);
+  const wrong = assetClaim.replace('土地使用权面积合计约2.93', '占地面积约10.15');
+  assert.doesNotMatch(parseBriefResponse(approvedResponse(wrong), approvedRecord).brief, /10\.15/);
+});
+
+void test('真实口径保底保留具体项目名称位置及土地面积，不退回泛泛的资产类别', () => {
+  const result = buildExchangeQuestionFallback(approvedRecord);
+  assert.ok(result);
+  assert.match(result.brief, /合肥银泰中心一期及二期购物中心项目/);
+  assert.match(result.brief, /土地使用权面积合计约2\.93万平方米/);
+});
+
+void test('招募说明书已披露具体资产和面积时不能发布遗漏资产的反馈简报', () => {
+  const parsed = parseBriefResponse(approvedResponse(), approvedRecord);
+  assert.throws(() => validateBrief(`${canonicalBriefOpening(approvedRecord)}。${mainTopics}。`, approvedRecord, parsed.evidence.filter(item => item.fileUrl === approvedRecord.files[0].url)), /missing_feedback_asset/);
+});
+
+void test('不能把具体资产名称退化成位于某地的购物中心类商业不动产', () => {
+  const generic = assetClaim.replace('合肥银泰中心一期及二期购物中心项目', '购物中心类商业不动产');
+  const parsed = parseBriefResponse(approvedResponse(generic), approvedRecord);
+  assert.throws(() => validateBrief(parsed.brief, approvedRecord, parsed.evidence), /missing_feedback_asset/);
+});
+
+void test('登记建筑面积不能改写成占地面积或普通建筑面积，即使数字出现在原文中', () => {
+  for (const metric of ['占地面积', '建筑面积']) {
+    const asset = `底层资产为位于某市的甲中心，${metric}约10.15万平方米`;
+    const incoming = { ...secondRound, files: [secondRound.files[0], { ...secondRound.files[1], content: '[第7页] 底层资产为位于某市的甲中心，登记建筑面积10.15万平方米。' }] };
+    const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${asset}。`, evidence: [{ claim: asset, fileIndex: 2, quote: '底层资产为位于某市的甲中心，登记建筑面积10.15万平方米。' }] }), incoming);
+    assert.doesNotMatch(parsed.brief, /10\.15/);
+  }
+});
+
+void test('水电资产装机容量按原口径从兆瓦换算成万千瓦', () => {
+  const asset = '招募说明书显示，底层资产为位于某市的乙水电站，装机容量为5.25万千瓦';
+  const incoming = { ...secondRound, files: [secondRound.files[0], { ...secondRound.files[1], content: '[第7页] 底层资产为位于某市的乙水电站，装机容量为52.5兆瓦。' }] };
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${asset}。`, evidence: [{ claim: asset, fileIndex: 2, quote: '底层资产为位于某市的乙水电站，装机容量为52.5兆瓦。' }] }), incoming);
+  assert.match(parsed.brief, /装机容量为5\.25万千瓦/);
 });

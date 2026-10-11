@@ -27,7 +27,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-09-feedback-v4';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-11-feedback-v5';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v2';
 
@@ -180,7 +180,7 @@ async function requestDeepSeekBrief(
 
 function isRetryableBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
-  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_feedback_topics|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
+  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_feedback_topics|missing_feedback_asset|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
     message,
   );
 }
@@ -227,7 +227,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 3. 正文使用项目简称，不重复基金全称；不写“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，不写基金管理人、专项计划名称或与本次事件无关的流程回顾。
 4. 每个事实只能来自下方“允许使用的原文件摘录”。项目动态页只可确认本次进度、交易所、日期；仅“申报”阶段还可使用项目动态页披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。
 5. 第一事实句之后的每个完整句子都必须提供证据。evidence.claim必须逐字复制该完整句子（可不含末尾句号），不能只截取句中一小段；evidence.quote必须逐字复制同一页原文件中的连续原文。一个句子引用多个文件时，为同一claim分别提供多条证据。
-6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。
+6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。反馈/问询的资产规模可依据同一招募说明书中明确属于本次资产的同口径数据换算为万平方米或万千瓦，合计必须引用所有分项；不得将一期规模写成全项目规模，不得混用土地使用权面积、占地面积、建筑面积或登记建筑面积。
 7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
 8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。文件没有变化数据时不得硬写估值变化。
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
@@ -242,7 +242,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
         : record.progressType === '回复反馈'
           ? '\n本次为精简重试：压缩估值描述，保留原文中的其他主要回复主题，以“此外，回复报告还就……”另写一个概括句；不能因精简删除其他回复事项，每个主题分别引用对应页的原文，evidence条数不限于4条。原文确实只有估值内容时不补写。'
         : record.progressType === '反馈/问询'
-          ? '\n本次为精简重试：必须保留本轮原函所有一级标题的主要主题，用一个概括句表达；每个标题分别引用对应页原文，evidence条数不限于4条；资产介绍不能代替反馈主题，不要展开具体问题。'
+          ? '\n本次为精简重试：必须保留本轮原函所有一级标题的主要主题，用一个概括句表达；每个标题分别引用对应页原文，evidence条数不限于4条；不能省略原文已披露的具体资产名称、位置和规模，不能用泛泛的资产类别代替资产介绍，不写现金流分散或重要现金流提供方等无关描述。'
         : '\n本次为精简重试：最多写3个扩展事实句；每句只表达一个主题；evidence最多4条，每条quote不超过120字；不要复述问题全文。'
       : ''
   }`;
@@ -271,8 +271,8 @@ function buildMaterial(record: BriefMaterial, compact = false) {
 正文摘录：${
           file.content
             ? compact
-              ? record.progressType === '回复反馈'
-                ? selectRelevantText(file.content, record.progressType, compactLimit)
+              ? record.progressType === '回复反馈' || record.progressType === '反馈/问询'
+                ? selectRelevantText(file.content, record.progressType === '反馈/问询' && file.kind === '招募说明书' ? '反馈资产' : record.progressType, compactLimit)
                 : file.content.slice(0, compactLimit)
               : file.content
             : '未成功读取，不得引用该文件中的事实'
@@ -291,7 +291,7 @@ function stageInstruction(record: BriefMaterial) {
     申报: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已申报’”；项目动态页披露原始权益人时可在同句末尾写明。不得呈现或引用其他文件，不写底层资产。',
     受理: '第一句写“日期，交易所网站显示，项目简称项目状态为‘已受理’”。后续只依据最新招募说明书，依次写原始权益人、底层资产名称与位置、文件明确披露的少量核心参数。',
     '反馈/问询':
-      '第一句写日期、交易所、项目简称及“获反馈”或“获问询”。随后只用一个完整句子概括交易所原函中“一、二、三……”等一级大标题涉及的主要方面，到“等方面展开”或同义表述即止；绝对不要再接“包括……”列举细分问题，也不要另起一句列举大标题下的小标题、具体问题或案例。接着仅依据原函最后一大项“其他反馈意见”“其他反馈问题”或“其他问询问题”，用“其余还包括……”概括其中少量主要事项；不得从前面各大项抽取细分问题充作“其余”。简报结尾依据该项目最新招募说明书，介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息；资产介绍只引用招募说明书，不能引用交易所原函、回复文件或自行补写。缺少对应原文时不补写。',
+      '第一句写“日期，交易所网站显示，项目简称项目获交易所第N轮反馈意见/审核问询”，动作中明确上交所或深交所；原文未标轮次时不猜测。随后用一个完整句子概括本轮交易所原函全部一级大标题的主要方面，写“反馈意见主要围绕……等方面展开，要求进一步补充说明或充分披露”；不得只选一项，不得逐项展开具体问题。原函确有最后一大项“其他反馈意见”或“其他问询问题”时，才另写“其余还包括……”概括其少量主要事项。结尾写“招募说明书草案显示，该项目底层资产为位于……的……项目，……规模约……万平方米/万千瓦”。资产必须包含具体名称、地理位置和原文已披露的适当规模指标：商业等项目优先土地使用权面积或占地面积，未披露时用建筑面积并明确口径；水电、风电等项目用装机容量等对应指标。多个资产分别写清或同口径合计，合计要为所有分项提供证据。不写估值、现金流来源分散、重要现金流提供方或无关的经营风险描述。资产只引用最新招募说明书，未披露的字段不补写。',
     回复反馈: '第一句写日期、交易所、项目简称及“就反馈意见/审核问询函进行了答复”。第一句之后的全部事实只能依据原始权益人或申报方提交给交易所的答复/回复PDF，不能引用交易所发出的反馈意见或审核问询函。先概括调整涉及的估值参数类别，不展开每项参数调整前后的具体数值；随后写调整后不动产项目整体评估值相对申报时点的金额变化和整体变动比例；最后必须另写“此外，回复报告还就……等问题进行了答复”，概括该文件实际涉及的其他主要回复主题，不能只写估值。主题可涉及业务参与人资质及履约能力、历史合规手续、土地用途、关联方租赁、项目经营与财务、运营管理费、治理机制、回收资金安排等，但不得机械照搬这些示例。多个主题可合并为一句，同一句的每个主题都需提供相应回复PDF原文证据，不限制为一条证据。原文未披露估值调整时跳过估值部分；原文确实只有估值内容时不补写其他事项。',
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
     询价: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额询价公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②询价区间、询价日及具体时间、预计基金份额募集期；③本次发售份额总额、战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按询价区间上下限与本次发售总份额计算的募集资金总额区间，注明为按上下限计算，单位和小数精度须核对；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。发行数据与注册文号、基金代码只能引用询价公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
@@ -380,6 +380,9 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
       (item) => normalizeClaim(item.claim) === sentence,
     );
     if (!matches.length) return false;
+    if (record.progressType === '反馈/问询' && !isFeedbackMainSummary(sentence) &&
+        !isOtherFeedbackClaim(sentence) && /现金流|重要现金流提供方/.test(sentence))
+      return false;
     if (record.progressType === '反馈/问询' &&
         !isOtherFeedbackClaim(sentence) &&
         !isFeedbackMainSummary(sentence) &&
@@ -397,6 +400,8 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
         .replace(/[,\s]/g, '')
         .match(/\d+(?:\.\d+)?/g) || [];
     const unsupported = numbers.filter((number) => !quotes.includes(number));
+    if (record.progressType === '反馈/问询' && isAssetIntroductionSentence(sentence))
+      return supportsFeedbackAssetScale(sentence, quotes, unsupported);
     if (record.progressType === '发售' && /募集资金总额/.test(sentence))
       return supportsDerivedOfferingScale(sentence, quotes, unsupported);
     return (
@@ -448,7 +453,7 @@ export function canonicalBriefOpening(record: BriefMaterial) {
   const actions: Record<string, string> = {
     申报: '状态为“已申报”',
     受理: '状态为“已受理”',
-    '反馈/问询': record.exchange === '深交所' ? `获${round}审核问询` : `获${round}反馈`,
+    '反馈/问询': record.exchange === '深交所' ? `获深交所${round}审核问询` : `获上交所${round}反馈意见`,
     回复反馈:
       record.exchange === '深交所'
         ? `就${round}审核问询函进行了答复`
@@ -476,6 +481,64 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
   );
   if (!file?.content) return null;
 
+  const topics = questionHeadings(file.content).map((heading) => ({
+    ...heading, label: feedbackTopicLabel(heading.title),
+  }));
+  if (!topics.length) return null;
+
+  const documentName = file.kind === '问询函' ? '审核问询函' : '反馈意见';
+  const labels = topics.map((topic) => topic.label);
+  const claim = `${documentName}主要围绕${labels.length > 1 ? `${labels.slice(0, -1).join('、')}和${labels.at(-1)}` : labels[0]}等方面展开，要求进一步补充说明或充分披露`;
+  const details = [claim];
+  const evidence: BriefEvidence[] = topics.map((topic) => ({
+    fileUrl: file.url,
+    page: topic.page,
+    claim,
+    quote: topic.quote,
+  }));
+  const other = summarizeOtherFeedback(file.content);
+  if (other &&
+      Array.from(`${canonicalBriefOpening(record)}。${[...details, other.claim].join('。')}。`.replace(/\s/g, '')).length <= briefMaximumLength(record.progressType)) {
+    details.push(other.claim);
+    evidence.push(...other.evidence.map((item) => ({ ...item, fileUrl: file.url })));
+  }
+  const prospectus = record.files
+    .filter((item) => item.kind === '招募说明书' && item.content)
+    .sort((left, right) => (right.publishedAt || '').localeCompare(left.publishedAt || ''))[0];
+  if (prospectus?.content) {
+    const located = findProspectusFact(prospectus.content, /本基金(?:拟)?持有的不动产项目为([^。]{2,200})。/);
+    if (located) {
+      const intro = located.claim.replace(/^本基金(?:拟)?持有的不动产项目为/, '招募说明书草案显示，该项目底层资产为');
+      details.push(intro);
+      evidence.push({ fileUrl: prospectus.url, ...located, claim: intro });
+      const pageText = prospectus.content.split(/(?=\[第\d+页\])/).find(part => part.startsWith(`[第${located.page}页]`)) || '';
+      const areas = [...pageText.matchAll(/土地使用权面积\s*(?:为|：|:)?\s*([\d,]+(?:\.\d+)?)\s*平方米/g)];
+      if (areas.length) {
+        const total = areas.reduce((sum, area) => sum + Number(area[1].replace(/,/g, '')), 0) / 10_000;
+        const scale = `上述项目土地使用权面积${areas.length > 1 ? '合计' : ''}约${total.toFixed(2)}万平方米`;
+        details.push(scale);
+        evidence.push(...areas.map(area => ({ fileUrl: prospectus.url, page: located.page, claim: scale, quote: area[0] })));
+      }
+    } else {
+      for (const pattern of [
+        /原始权益人\s*(?:为|是|：|:)\s*([^。；\n]{2,80})[。；]/,
+        /底层资产\s*(?:为|包括|：|:)\s*([^。；\n]{2,160})[。；]/,
+      ]) {
+        const fact = findProspectusFact(prospectus.content, pattern);
+        if (!fact || /现金流|重要现金流提供方/.test(fact.claim)) continue;
+        const next = `${canonicalBriefOpening(record)}。${[...details, fact.claim].join('。')}。`;
+        if (Array.from(next.replace(/\s/g, '')).length > briefMaximumLength(record.progressType)) continue;
+        details.push(fact.claim);
+        evidence.push({ fileUrl: prospectus.url, ...fact });
+      }
+    }
+  }
+  const brief = `${canonicalBriefOpening(record)}。${details.join('。')}。`;
+  validateBrief(brief, record, evidence);
+  return { brief, evidence };
+}
+
+function feedbackTopicLabel(title: string) {
   const definitions = [
     {
       label: '业务参与人资质及履职能力',
@@ -498,48 +561,7 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
       patterns: [/^(?:关于)?基金运作.{0,6}治理(?:机制)?/],
     },
   ] as const;
-  const topics = questionHeadings(file.content).map((heading) => ({
-    ...heading,
-    label: definitions.find((definition) => definition.patterns.some((pattern) => pattern.test(heading.title)))?.label || heading.title.replace(/^关于/, ''),
-  }));
-  if (!topics.length) return null;
-
-  const documentName = file.kind === '问询函' ? '审核问询函' : '反馈意见';
-  const claim = `${documentName}主要围绕${topics.map((topic) => topic.label).join('、')}等方面展开，要求进一步补充说明或充分披露`;
-  const details = [claim];
-  const evidence: BriefEvidence[] = topics.map((topic) => ({
-    fileUrl: file.url,
-    page: topic.page,
-    claim,
-    quote: topic.quote,
-  }));
-  const other = summarizeOtherFeedback(file.content);
-  if (other &&
-      Array.from(`${canonicalBriefOpening(record)}。${[...details, other.claim].join('。')}。`.replace(/\s/g, '')).length <= briefMaximumLength(record.progressType)) {
-    details.push(other.claim);
-    evidence.push(...other.evidence.map((item) => ({ ...item, fileUrl: file.url })));
-  }
-  const prospectus = record.files
-    .filter((item) => item.kind === '招募说明书' && item.content)
-    .sort((left, right) => (right.publishedAt || '').localeCompare(left.publishedAt || ''))[0];
-  if (prospectus?.content) {
-    for (const pattern of [
-      /原始权益人\s*(?:为|是|：|:)\s*([^。；\n]{2,80})[。；]/,
-      /底层资产\s*(?:为|包括|：|:)\s*([^。；\n]{2,80})[。；]/,
-    ]) {
-      const fact = findProspectusFact(prospectus.content, pattern);
-      if (!fact) continue;
-      if (details.some((item) => item.includes(fact.claim))) continue;
-      const next = `${canonicalBriefOpening(record)}。${[...details, fact.claim].join('。')}。`;
-      if (Array.from(next.replace(/\s/g, '')).length > briefMaximumLength(record.progressType))
-        continue;
-      details.push(fact.claim);
-      evidence.push({ fileUrl: prospectus.url, ...fact });
-    }
-  }
-  const brief = `${canonicalBriefOpening(record)}。${details.join('。')}。`;
-  validateBrief(brief, record, evidence);
-  return { brief, evidence };
+  return definitions.find(definition => definition.patterns.some(pattern => pattern.test(title)))?.label || title.replace(/^关于/, '');
 }
 
 function questionHeadings(content: string) {
@@ -671,13 +693,34 @@ function isQuoteInOtherFeedbackSection(content: string, quote: string) {
 }
 
 function isAssetIntroductionSentence(value: string) {
-  return /原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|可供出租面积|占地面积/.test(
+  return /原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|可供出租面积|占地面积|土地使用权面积|装机容量|发电功率/.test(
     value,
   );
 }
 
 function isAssetBackgroundSentence(value: string) {
   return /底层资产|项目位于|建筑面积|可供出租面积|占地面积|原始权益人为|项目原始权益人为/.test(value);
+}
+
+function supportsFeedbackAssetScale(sentence: string, quotes: string, unsupported: string[]) {
+  const normalized = sentence.normalize('NFKC').replace(/[,\s]/g, '');
+  const targets = [...normalized.matchAll(/(土地使用权面积|占地面积|登记建筑面积|建筑面积|装机容量|发电功率)(合计)?(?:为|约为|约)?(\d+(?:\.\d+)?)万(平方米|千瓦)/g)];
+  if (!targets.length) return !unsupported.length;
+  if (unsupported.some(number => !targets.some(target => target[3] === number))) return false;
+  return targets.every(target => {
+    const sources = [...quotes.matchAll(new RegExp(`${target[1] === '建筑面积' ? '(?<!登记)' : ''}${target[1]}(?:为|：|:)?(\\d+(?:\\.\\d+)?)(万平方米|平方米|万千瓦|千瓦|兆瓦|MW)`, 'g'))];
+    if (!sources.length) return false;
+    const values = sources.flatMap(source => {
+      const area = source[2].includes('平方米');
+      if (area !== (target[4] === '平方米')) return [];
+      const factor = source[2] === '平方米' || source[2] === '千瓦' ? 0.0001 : source[2] === '兆瓦' || source[2] === 'MW' ? 0.1 : 1;
+      return [Number(source[1]) * factor];
+    });
+    if (!values.length || (!target[2] && values.length !== 1)) return false;
+    const expected = values.reduce((sum, value) => sum + value, 0);
+    const decimals = target[3].split('.')[1]?.length || 0;
+    return Math.abs(expected - Number(target[3])) < 0.5 * 10 ** -decimals;
+  });
 }
 
 function supportsDerivedFinalScale(
@@ -793,7 +836,7 @@ function stageSentenceRank(sentence: string, stage: string) {
   if (stage === '反馈/问询') {
     if (/其余还包括|此外还包括|其他反馈意见|其他反馈问题|其他问询问题/.test(sentence))
       return 2;
-    if (/原始权益人|底层资产|基础设施项目|项目位于|建筑面积|装机容量/.test(sentence) &&
+    if (/原始权益人|底层资产|基础设施项目|项目位于|建筑面积|土地使用权面积|占地面积|装机容量|发电功率/.test(sentence) &&
         !/资质及履职能力/.test(sentence))
       return 3;
     return 1;
@@ -896,10 +939,28 @@ export function validateBrief(
       (file.kind === '反馈意见' || file.kind === '问询函') && file.issuerRole !== '原始权益人' && file.content);
     const topics = questionHeadings(question?.content || '');
     const summaries = value.split('。').slice(1).filter(isFeedbackMainSummary);
-    if (!summaries.length || (evidence !== undefined && !topics.every((topic) =>
+    if (!summaries.length || !topics.every(topic => summaries.some(summary =>
+      summary.includes(topic.title.replace(/^关于/, '')) || summary.includes(feedbackTopicLabel(topic.title)))) ||
+      (evidence !== undefined && !topics.every((topic) =>
       evidence.some((item) => item.fileUrl === question!.url && summaries.includes(normalizeClaim(item.claim)) &&
         item.quote.normalize('NFKC').replace(/\s/g, '').includes(topic.quote.normalize('NFKC').replace(/\s/g, ''))))))
       throw new Error('missing_feedback_topics');
+    const prospectus = record.files.find(file => file.kind === '招募说明书' && file.content);
+    const source = prospectus?.content || '';
+    const assets = value.split('。').filter(sentence => isAssetIntroductionSentence(sentence) &&
+      !isFeedbackMainSummary(sentence) && !isOtherFeedbackClaim(sentence)).join('。');
+    if (/现金流|重要现金流提供方/.test(assets)) throw new Error('invalid_feedback_asset');
+    if (/的(?:购物中心类商业不动产|购物中心项目|商业不动产|基础设施项目)(?:[，。]|$)/.test(assets))
+      throw new Error('missing_feedback_asset');
+    if (/(?:底层资产|持有的不动产项目).{0,100}(?:位于|坐落于)/.test(source.replace(/\s/g, '')) &&
+      !value.split('。').some(sentence => /底层资产/.test(sentence) && /位于|坐落于/.test(sentence)))
+      throw new Error('missing_feedback_asset');
+    const metrics = /水电站|水利发电|风电场|光伏电站/.test(assets)
+      ? ['装机容量', '发电功率']
+      : ['土地使用权面积', '占地面积', '建筑面积', '登记建筑面积'];
+    const metric = metrics.find(name => new RegExp(`${name === '建筑面积' ? '(?<!登记)' : ''}${name}(?:为|：|:)?\\d`).test(source.normalize('NFKC').replace(/[,\s]/g, '')));
+    if (metric && !new RegExp(`${metric}.{0,15}万(?:平方米|千瓦)`).test(assets))
+      throw new Error('missing_feedback_asset');
   }
   if (record.progressType === '回复反馈') {
     const replyFiles = record.files.filter((file) =>
