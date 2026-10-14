@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { briefAfterGenerationFailure } from '../lib/refresh-brief.ts';
 import type { ReitsRecord } from '../lib/reits.ts';
+import { briefRulesVersionFor } from '../lib/deepseek.ts';
 
 const existing: ReitsRecord = {
   id: 'test-reit',
@@ -11,6 +12,7 @@ const existing: ReitsRecord = {
   title: '测试REIT获反馈',
   status: '已反馈',
   progressType: '反馈/问询',
+  briefRulesVersion: briefRulesVersionFor('反馈/问询'),
   offeringType: '首发',
   updateDate: '2026-09-21',
   weekStart: '2026-09-21',
@@ -36,6 +38,11 @@ void test('生成失败时保留已核验简报及其原文件证据', () => {
   assert.deepEqual(result.record.files, existing.files);
   assert.equal(result.record.sourceHtml, existing.sourceHtml);
   assert.match(result.record.note || '', /保留此前已核验/);
+});
+
+void test('规则升级后不把旧版部分认购摘要保留为已核验完整简报', () => {
+  const old = { ...existing, progressType: '认购结果', briefRulesVersion: '2026-09-20-v10', brief: '10月14日，深交所网站显示，某REIT发布认购结果。公众确认比例为0.27%。' };
+  assert.equal(briefAfterGenerationFailure(old, old, '认购结果简报遗漏已披露的数据').preserved, false);
 });
 
 void test('没有已核验简报时仅发布进度和失败原因', () => {

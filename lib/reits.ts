@@ -34,6 +34,8 @@ import {
 import {
   firstSzseAnnouncementValue,
   szseAnnouncementHistoryBody,
+  szseSupportingHistoryStart,
+  sameSzseFund,
 } from '@/lib/szse-announcements';
 
 export type ReitsFile = ReitsSourceFile;
@@ -868,7 +870,9 @@ async function mapSseBulletin(
 ): Promise<ReitsRecord> {
   const progressType = announcementStage(bulletin.title)!;
   const history = await historyPromise;
-  const allFiles = history.map(sseBulletinFile);
+  const allFiles = progressType === '认购结果'
+    ? [sseBulletinFile(bulletin), ...history.filter(item => item.sseDate <= bulletin.sseDate && announcementStage(item.title) !== progressType).map(sseBulletinFile)]
+    : history.map(sseBulletinFile);
   const files = selectStageFiles(progressType, allFiles);
   const offeringType: OfferingType = history.some((item) =>
     /扩募|新购入不动产/.test(item.title),
@@ -928,7 +932,7 @@ async function fetchSzseAnnouncementRecords(
       postJson<{ announceCount?: number; data?: SzseAnnouncement[] }>(
         'https://www.szse.cn/api/disc/announcement/annList',
         'https://reits.szse.cn/disclosure/',
-        szseAnnouncementHistoryBody(weekStart, weekEnd, pageNum),
+        szseAnnouncementHistoryBody(szseSupportingHistoryStart(weekStart), weekEnd, pageNum),
       ),
     );
     if (!Array.isArray(data.data))
@@ -947,7 +951,7 @@ async function fetchSzseAnnouncementRecords(
   });
   return Promise.all(
     announcements.map((item) =>
-      mapSzseAnnouncement(item, projects, weekStart, weekEnd),
+      mapSzseAnnouncement(item, projects, weekStart, weekEnd, all),
     ),
   );
 }
@@ -957,6 +961,7 @@ async function mapSzseAnnouncement(
   projects: SzseProjectWithOffering[],
   weekStart: string,
   weekEnd: string,
+  history: SzseAnnouncement[],
 ): Promise<ReitsRecord> {
   const progressType = announcementStage(announcement.title)!;
   const matched = projects.find(({ project }) =>
@@ -971,6 +976,8 @@ async function mapSzseAnnouncement(
   const files = selectStageFiles(progressType, [
     primary,
     ...(detail.data ? szseFiles(detail.data) : []),
+    ...(progressType === '认购结果' ? history.filter(item => sameSzseFund(item.secCode, announcement.secCode) && item.publishTime.slice(0, 10) <= announcement.publishTime.slice(0, 10) &&
+      (classifyDocument(item.title) === '发售' || classifyDocument(item.title) === '招募说明书')).map(szseAnnouncementFile) : []),
   ]);
   const offeringType: OfferingType =
     matched?.offeringType ||

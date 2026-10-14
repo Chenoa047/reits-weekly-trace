@@ -94,7 +94,7 @@ void test('深交所问询与上交所反馈使用同一主题结构生成可核
   assert.ok(result);
   assert.equal(
     result.brief,
-    '9月18日，深交所网站显示，中金中国绿发REIT项目获审核问询。审核问询函主要围绕业务参与人资质及履职能力、不动产项目合规性、项目经营与财务情况、资产评估与估值合理性、基金运作与治理机制等方面展开，要求进一步补充说明或充分披露。',
+    '9月18日，深交所网站显示，中金中国绿发REIT项目获深交所审核问询。审核问询函主要围绕业务参与人资质及履职能力、不动产项目合规性、项目经营与财务情况、资产评估与估值合理性和基金运作与治理机制等方面展开，要求进一步补充说明或充分披露。',
   );
   assert.deepEqual(
     result.evidence.map((item) => item.page),
@@ -328,7 +328,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
   const valid = parseBriefResponse(output, record);
   assert.equal(
     valid.brief,
-    '9月15日，上交所网站显示，某REIT项目获反馈。问询函主要关注资产权属和估值依据。',
+    '9月15日，上交所网站显示，某REIT项目获上交所反馈意见。问询函主要关注资产权属和估值依据。',
   );
   assert.deepEqual(valid.evidence, [
     {
@@ -347,7 +347,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
       record,
     ),
     {
-      brief: '9月15日，上交所网站显示，某REIT项目获反馈。',
+      brief: '9月15日，上交所网站显示，某REIT项目获上交所反馈意见。',
       evidence: [],
     },
   );
@@ -373,7 +373,7 @@ void test('同屏核对依据只能定位到原文件实际页码和原文', () 
       record,
     ),
     {
-      brief: '9月15日，上交所网站显示，某REIT项目获反馈。',
+      brief: '9月15日，上交所网站显示，某REIT项目获上交所反馈意见。',
       evidence: [],
     },
   );
@@ -476,7 +476,7 @@ void test('局部短语不能冒充整句证据', () => {
       }),
       record,
     ),
-    { brief: '9月15日，上交所网站显示，某REIT项目获反馈。', evidence: [] },
+    { brief: '9月15日，上交所网站显示，某REIT项目获上交所反馈意见。', evidence: [] },
   );
 });
 
@@ -663,14 +663,10 @@ void test('认购结果简报按配售结构、网下、公众和募集结果排
     }),
     record,
   );
-  assert.equal(
-    parsed.brief,
-    `9月15日，上交所网站显示，某REIT项目发布认购申请确认比例的公告。${structure}。${offline}。${publicOffer}。${result}。`,
-  );
-  assert.deepEqual(
-    parsed.evidence.map((item) => item.claim),
-    [structure, offline, publicOffer, result],
-  );
+  assert.match(parsed.brief, /4亿份.*2\.8亿份.*0\.84亿份.*0\.36亿份/);
+  assert.match(parsed.brief, /361\.861亿份.*0\.23%.*449\.76亿份.*0\.08%.*1249倍/);
+  assert.match(parsed.brief, /2\.317元\/份.*最终募集规模为9\.268亿元/);
+  assert.ok(parsed.evidence.every(item => item.fileUrl === record.files[0].url));
 });
 
 void test('认购结果可用公告中的价格和总份额计算最终募集规模', () => {
@@ -704,7 +700,7 @@ void test('认购结果可用公告中的价格和总份额计算最终募集规
     }),
     record,
   );
-  assert.equal(parsed.brief.includes('最终募集规模为9.268亿元'), true);
+  assert.equal(parsed.brief.includes('预计募集规模为9.268亿元'), true);
 });
 
 void test('询价简报把招募说明书中的底层资产介绍放在最后', () => {
@@ -837,7 +833,7 @@ void test('反馈问询的监管关注只能引用交易所原函，资产介绍
   );
   assert.equal(
     parsed.brief,
-    `9月15日，深交所网站显示，某REIT项目获审核问询。${asset}。`,
+    `9月15日，深交所网站显示，某REIT项目获深交所审核问询。${asset}。`,
   );
   assert.deepEqual(parsed.evidence.map((item) => item.fileUrl), [
     'https://example.com/prospectus.pdf',

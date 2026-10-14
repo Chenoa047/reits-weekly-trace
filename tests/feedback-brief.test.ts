@@ -54,7 +54,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-11-feedback-v5');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-14-feedback-v6');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -289,4 +289,24 @@ void test('水电资产装机容量按原口径从兆瓦换算成万千瓦', () 
   const incoming = { ...secondRound, files: [secondRound.files[0], { ...secondRound.files[1], content: '[第7页] 底层资产为位于某市的乙水电站，装机容量为52.5兆瓦。' }] };
   const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${asset}。`, evidence: [{ claim: asset, fileIndex: 2, quote: '底层资产为位于某市的乙水电站，装机容量为52.5兆瓦。' }] }), incoming);
   assert.match(parsed.brief, /装机容量为5\.25万千瓦/);
+});
+
+void test('华夏中海可选择建筑总面积，不强迫改成土地面积；OCR标题不吞入括号细项', () => {
+  const inquiry = { ...record.files[0], kind: '问询函', content: '[第1页] 一、业务参与人资质及履职能力 （一）关于原始权益人。\n[第3页] 二、不动产合规情况 （一）项目合规。\n[第6页] 三、项目经营与财务情况 （一）项目经营。\n[第9页] 四、资产评估与估值合理性 （一）估值。\n[第11页] 五、基金运作与治理 （一）治理。' };
+  const content = '[第53页] 不动产项目名称 千灯湖环宇城项目 大类资产类型 商业不动产 不动产项目业态 购物中心 项目所在地 广东省佛山市南海区 资产范围 项目范围 建设内容和规模 总建筑面积131,734.65平方米，土地使用权面积20,000平方米。';
+  const incoming = { ...record, exchange: '深交所', shortName: '华夏中海REIT', updateDate: '2026-10-13', files: [inquiry, { ...record.files[1], content }] };
+  const main = '问询主要围绕业务参与人资质及履职能力、不动产合规情况、项目经营与财务情况、资产评估与估值合理性、基金运作与治理等方面展开';
+  const asset = '底层资产为位于广东省佛山市南海区的千灯湖环宇城，建筑总面积约13.17万平方米';
+  const headings = ['一、业务参与人资质及履职能力', '二、不动产合规情况', '三、项目经营与财务情况', '四、资产评估与估值合理性', '五、基金运作与治理'];
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${main}。${asset}。`, evidence: [
+    ...headings.map(quote => ({ claim: main, fileIndex: 1, quote })),
+    { claim: asset, fileIndex: 2, quote: '总建筑面积131,734.65平方米' },
+    { claim: asset, fileIndex: 2, quote: '不动产项目名称 千灯湖环宇城项目' },
+    { claim: asset, fileIndex: 2, quote: '项目所在地 广东省佛山市南海区' },
+  ] }), incoming);
+  assert.match(parsed.brief, /13\.17万平方米/);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, incoming, parsed.evidence));
+  const fallback = buildExchangeQuestionFallback(incoming);
+  assert.ok(fallback);
+  assert.match(fallback.brief, /千灯湖环宇城项目.*佛山市南海区/);
 });

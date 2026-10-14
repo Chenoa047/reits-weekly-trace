@@ -49,6 +49,9 @@ export function describeBriefFailure(error: unknown) {
   if (/no_verified_detail/.test(message)) return '未生成可核验正文';
   if (/missing_feedback_topics/.test(message)) return '反馈简报主要关注事项不完整';
   if (/missing_feedback_asset/.test(message)) return '反馈简报遗漏已披露的资产名称、位置或规模';
+  if (/missing_subscription_fields/.test(message)) return '认购结果简报遗漏已披露的认购或配售数据';
+  if (/missing_subscription_asset/.test(message)) return '认购结果简报遗漏已披露的底层资产';
+  if (/conflicting_subscription_terms/.test(message)) return '认购结果与发售公告数据存在冲突，待核验';
   if (/invalid_feedback_asset/.test(message)) return '反馈简报包含无关资产描述';
   if (/missing_reply_other_topics/.test(message)) return '回复简报遗漏其他回复事项';
   if (/invalid_opening|opening_contains_details/.test(message))

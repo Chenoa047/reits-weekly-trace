@@ -148,8 +148,14 @@ export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
   }
   if (stage === '询价') return present([latest('询价'), latest('招募说明书')]);
   if (stage === '发售') return present([latest('发售'), latest('招募说明书')]);
-  if (stage === '认购结果')
-    return present([latest('认购结果'), latest('招募说明书')]);
+  if (stage === '认购结果') {
+    const result = latest('认购结果');
+    const offering = files.filter(file => file.kind === '发售' &&
+      (!result?.publishedAt || !file.publishedAt || file.publishedAt.slice(0, 10) <= result.publishedAt.slice(0, 10)) &&
+      /扩募|新购入/.test(file.originalTitle) === /扩募|新购入/.test(result?.originalTitle || ''))
+      .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))[0];
+    return present([result, latest('招募说明书'), offering]);
+  }
   if (stage === '上市') {
     return present([
       latest('上市'),

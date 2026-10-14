@@ -18,11 +18,13 @@ export async function addDocumentExcerpts(
     ...file,
     content: selectRelevantText(
       file.content || '',
-      stage === '询价' && file.kind === '招募说明书'
+      stage === '认购结果' && file.kind === '发售'
+        ? '认购定价'
+        : stage === '询价' && file.kind === '招募说明书'
         ? '询价资产'
         : stage === '发售' && file.kind === '招募说明书'
           ? '发售资产'
-        : stage === '反馈/问询' && file.kind === '招募说明书'
+        : (stage === '反馈/问询' || stage === '认购结果') && file.kind === '招募说明书'
           ? '反馈资产'
           : stage,
       perFileLimit,
@@ -116,6 +118,15 @@ function pdfReferer(url: string) {
 
 export function selectRelevantText(text: string, stage: string, limit: number) {
   if (text.length <= limit) return text;
+  if (stage === '认购定价') {
+    const matches = [...text.matchAll(/(?:认购价格|发售价格)(?:为|：|:)?\s*\d[\d.]*/g)];
+    if (!matches.length) return text.slice(0, limit);
+    return matches.slice(0, 3).map(match => {
+      const start = Math.max(0, match.index - 150);
+      const marker = text.slice(0, start).match(/\[第\d+页\]/g)?.at(-1) || '';
+      return `${marker} ${text.slice(start, start + Math.floor(limit / 3) - 20)}`;
+    }).join('\n').slice(0, limit);
+  }
   if (stage === '反馈/问询') return selectFeedbackText(text, limit);
   if (stage === '回复反馈') return selectReplyText(text, limit);
   const keywords: Record<string, string[]> = {
@@ -150,10 +161,10 @@ export function selectRelevantText(text: string, stage: string, limit: number) {
     ],
     询价: ['证监许可', '基金代码', '询价区间', '询价日', '募集期', '发售份额', '战略配售', '网下发售', '公众投资者'],
     询价资产: ['底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积', '装机容量', '原始权益人'],
-    反馈资产: ['持有的不动产项目为', '不动产项目概况表', '土地使用权面积', '占地面积', '装机容量', '底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积'],
+    反馈资产: ['本基金拟持有的不动产项目', '项目所在地', '总建筑面积', '不动产项目名称', '不动产项目概况表', '土地使用权面积', '占地面积', '装机容量', '底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积'],
     发售: ['证监许可', '基金代码', '认购价格', '运作方式', '存续期限', '发售份额总额', '战略配售', '网下发售', '公众投资者'],
     发售资产: ['底层资产', '基础设施项目', '不动产项目', '项目位于', '建筑面积', '装机容量', '原始权益人'],
-    认购结果: ['有效认购', '确认比例', '认购倍数', '募集规模', '认购价格'],
+    认购结果: ['基金份额总额', '战略配售', '网下发售', '公众投资者', '有效认购', '确认比例', '认购倍数', '募集规模', '认购价格'],
     上市: ['上市日期', '交易代码', '基金份额', '募集规模', '认购价格'],
   };
   const windows: string[] = [];
@@ -197,36 +208,11 @@ function selectReplyText(text: string, limit: number) {
 }
 
 function selectFeedbackText(text: string, limit: number) {
-  const headings = [...text.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*[^。；\n]{2,55}/g)];
+  const headings = [...text.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}[、.．]\s*[^。；\n（(]{2,55}/g)];
   const other = [...text.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)].at(-1);
-  const ranges = [
-    { start: 0, end: Math.min(5_000, Math.floor(limit / 3)) },
-    ...headings
-      .filter((heading) => !/其他(?:反馈|问询)/.test(heading[0]))
-      .slice(0, 8)
-      .map((heading) => excerptRange(text, heading.index || 0, 200, 800)),
-    ...(other ? [excerptRange(text, other.index || 0, 100, 4_000)] : []),
-  ].sort((left, right) => left.start - right.start);
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const range of ranges) {
-    const previous = merged.at(-1);
-    if (previous && range.start <= previous.end)
-      previous.end = Math.max(previous.end, range.end);
-    else merged.push({ ...range });
-  }
-  return merged
-    .map(({ start, end }) => {
-      const value = text.slice(start, end);
-      const pageMarker = start ? text.slice(0, start).match(/\[第\d+页\]/g)?.at(-1) : undefined;
-      return pageMarker && !value.startsWith('[第') ? `${pageMarker} ${value}` : value;
-    })
-    .join('\n')
-    .slice(0, limit);
-}
-
-function excerptRange(text: string, index: number, before: number, after: number) {
-  return {
-    start: Math.max(0, index - before),
-    end: Math.min(text.length, index + after),
-  };
+  const excerpt = (index: number, value: string) => `${text.slice(0, index).match(/\[第\d+页\]/g)?.at(-1) || ''} ${value}`;
+  // Reserve the budget for all main headings, rather than consuming it on the first few detailed questions.
+  const required = headings.map(heading => excerpt(heading.index, heading[0])).join('\n') +
+    (other ? `\n${excerpt(other.index, text.slice(other.index, other.index + 4_000))}` : '');
+  return `${required}\n${text.slice(0, Math.max(0, limit - required.length - 1))}`.slice(0, limit);
 }

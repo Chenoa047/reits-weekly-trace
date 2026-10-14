@@ -33,6 +33,9 @@ void test('发售长公告与招募说明书保留各自需要的事实', () => 
   assert.match(selectedNotice, /证监许可〔2026〕1234号/);
   assert.match(selectedNotice, /认购价格4\.20元\/份/);
   assert.match(selectedNotice, /战略配售初始份额1\.2亿份/);
+  const resultPricing = selectRelevantText(`${front}\n[第58页] 基金份额认购价格为3.451元/份。`, '认购定价', 4000);
+  assert.match(resultPricing, /\[第58页\]/);
+  assert.match(resultPricing, /3\.451元\/份/);
 
   const asset = '[第80页] 底层资产为甲园区，建筑面积8万平方米，原始权益人为甲公司。';
   const selectedAsset = selectRelevantText(`${front}\n${asset}`, '发售资产', 5_000);
@@ -69,4 +72,11 @@ void test('已有足量可检索正文的PDF不重复启用OCR', () => {
       `[第${index + 1}页] 审核问询函主要关注业务参与人资质、不动产合规、项目经营与财务、资产评估及基金治理。`,
   ).join('\n');
   assert.equal(isPdfTextTooSparse(text, 5), false);
+});
+
+void test('长问询保留全部一级标题，不限于前八项也不吞入括号细项', () => {
+  const numbers = ['一','二','三','四','五','六','七','八','九','十','十一','十二'];
+  const text = numbers.map((number, index) => `[第${index + 1}页] ${number}、主题${index + 1} （一）${'细分问题'.repeat(1500)}。`).join('\n');
+  const selected = selectRelevantText(text, '反馈/问询', 4000);
+  for (const number of numbers) assert.ok(selected.includes(`${number}、主题`));
 });

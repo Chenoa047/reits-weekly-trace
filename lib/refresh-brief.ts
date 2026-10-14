@@ -11,6 +11,7 @@ export function briefAfterGenerationFailure(
     existing.progressType === incoming.progressType &&
     isBriefDisplayable(existing.brief, existing.progressType) &&
     existing.brief !== canonicalBrief(existing) &&
+    (!['反馈/问询', '认购结果'].includes(existing.progressType) || existing.briefRulesVersion === briefRulesVersionFor(existing.progressType)) &&
     (existing.progressType !== '反馈/问询' || existing.evidence?.some((item) =>
       existing.files.some((file) => file.url === item.fileUrl &&
         (file.kind === '反馈意见' || file.kind === '问询函') && file.issuerRole !== '原始权益人'))) &&
