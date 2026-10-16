@@ -30,7 +30,7 @@ type BriefMaterial = {
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
 const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-14-feedback-v6';
-const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-14-subscription-v1';
+const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v2';
 
@@ -983,6 +983,9 @@ export function validateBrief(
     if (!facts.length || facts.some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
       !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
       throw new Error('missing_subscription_fields');
+    if (prospectusAssetFacts(record.files).some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
+      !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
+      throw new Error('missing_subscription_asset');
     validateAssetCompleteness(value, record, 'missing_subscription_asset');
   }
   if (record.progressType === '回复反馈') {
@@ -1011,10 +1014,11 @@ function validateAssetCompleteness(value: string, record: BriefMaterial, error: 
   if (/的(?:购物中心类商业不动产|购物中心项目|商业不动产|基础设施项目)(?:[，。]|$)/.test(assets)) throw new Error(error);
   if (/不动产项目名称|(?:底层资产|持有的不动产项目).{0,100}(?:位于|坐落于)/.test(source) &&
     !value.split('。').some(sentence => /底层资产/.test(sentence) && /位于|坐落于/.test(sentence))) throw new Error(error);
-  const metrics = /水电|水力发电|水利发电|电站|电厂|风电场|光伏/.test(assets)
+  const tableScales = prospectusAssetFacts(record.files).slice(1);
+  const metrics = /水电|水力发电|水利发电|电站|电厂|风电场|光伏/.test(assets) || tableScales.some(fact => fact.claim.includes('装机容量'))
     ? ['装机容量', '发电功率']
     : ['土地使用权面积', '占地面积', '总建筑面积', '建筑总面积', '建筑面积', '登记建筑面积', '装机容量'];
-  const disclosed = metrics.filter(name => new RegExp(`${name === '建筑面积' ? '(?<!登记)' : ''}${name}(?:为|：|:)?\\d`).test(source));
+  const disclosed = metrics.filter(name => tableScales.some(fact => fact.claim.includes(name)) || new RegExp(`${name === '建筑面积' ? '(?<!登记)' : ''}${name}(?:为|：|:)?\\d`).test(source));
   if (disclosed.length && !disclosed.some(metric => new RegExp(`${/总建筑面积|建筑总面积/.test(metric) ? '(?:总建筑面积|建筑总面积)' : metric}.{0,15}万(?:平方米|千瓦)`).test(assets))) throw new Error(error);
 }
 

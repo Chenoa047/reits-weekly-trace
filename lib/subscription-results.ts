@@ -25,16 +25,16 @@ export function subscriptionResultFacts(files: SourceFile[]): SubscriptionFact[]
   const results = files.filter(file => file.kind === '认购结果');
   const offerings = files.filter(file => file.kind === '发售');
   const total = find(results, '(?:募集基金份额总额|基金份额总额|发售份额总额)(?:为|:|：)?', true);
-  const strategic = find(results, '(?:初始战略配售基金份额数量|战略配售初始(?:发售)?(?:基金)?份额)(?:为|:|：)?', true);
+  const strategic = find(results, '(?:初始战略配售(?:发售)?(?:基金)?份额(?:数量)?|战略配售初始(?:发售)?(?:基金)?份额(?:数量)?)(?:为|:|：)?', true);
   const offline = find(results, '(?:网下发售的初始基金份额数量|网下(?:发售)?初始(?:发售)?(?:基金)?份额)(?:为|:|：)?', true);
   const publicOffer = find(results, '(?:公众投资者认购的初始基金份额数量|公众(?:投资者)?(?:发售)?初始(?:发售)?(?:基金)?份额)(?:为|:|：)?', true);
   const offlineEffective = find(results, '网下投资者[^。]{0,200}?有效认购(?:基金)?份额(?:总数|数量|总额)?(?:为|:|：)?', true);
   const publicEffective = find(results, '公众投资者的?有效认购(?:基金)?份额(?:总数|数量|总额)?(?:为|:|：)?', true);
-  const offlineRatio = find(results, '网下投资者有效认购申请确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%') ||
+  const offlineRatio = find(results, '网下投资者有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%') ||
     find(results, '网下投资者[^。]{0,120}?对应配售比例(?:为|:|：)?', false, '%');
-  const publicRatio = find(results, '公众投资者有效认购申请确认比例(?:为|:|：)?', false, '%') ||
-    find(results, '公众投资者[^。]{0,120}?有效认购申请确认比例(?:为|:|：)?', false, '%');
-  const strategicRatio = find(results, '战略投资者有效认购申请确认比例(?:为|:|：)?', false, '%');
+  const publicRatio = find(results, '公众投资者有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%') ||
+    find(results, '公众投资者[^。]{0,120}?有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%');
+  const strategicRatio = find(results, '战略投资者有效认购申请(?:实际|最终)?确认比例(?:为|:|：)?', false, '%');
   const multiple = find(results, '公众投资者[^。]{0,160}?认购倍数(?:达到|约为|为|约)?', false, '倍');
   const resultPrice = find(results, '(?:基金份额)?认购价格(?:为|:|：)?', false, '元/份');
   const offeringPrice = find(offerings, '(?:基金份额)?认购价格(?:为|:|：)?', false, '元/份');
