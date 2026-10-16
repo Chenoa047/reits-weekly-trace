@@ -15,6 +15,7 @@ import { addDocumentExcerpts } from '@/lib/pdf-text';
 import { briefAfterGenerationFailure } from '@/lib/refresh-brief';
 import {
   beginScheduledRefreshRun,
+  expireStaleRefreshRuns,
   finishRefreshRun,
   startQueuedRefreshRun,
   type RefreshRunStatus,
@@ -281,6 +282,7 @@ function displayableRecord(record: ReitsRecord): ReitsRecord {
 }
 
 export async function latestRun(db: D1) {
+  await expireStaleRefreshRuns(db);
   const row = await db
     .prepare('SELECT * FROM fetch_runs ORDER BY started_at DESC LIMIT 1')
     .first<Record<string, unknown>>();

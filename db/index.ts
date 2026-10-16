@@ -1,4 +1,5 @@
 import { createClient, type Client, type InValue, type Row } from '@libsql/client';
+import { databaseFetch } from '../lib/database-network.ts';
 
 let client: Client | null = null;
 
@@ -9,7 +10,7 @@ export function getDb(): AppDb {
   const authToken = process.env.TURSO_AUTH_TOKEN;
   if (!url) throw new Error('Turso 数据库尚未配置。');
 
-  client ??= createClient({ url, authToken });
+  client ??= createClient({ url, authToken, fetch: databaseFetch });
   return createDbAdapter(client);
 }
 

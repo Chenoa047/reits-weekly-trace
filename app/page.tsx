@@ -312,6 +312,7 @@ export default function Home() {
     const data = (await response.json()) as { run?: RefreshRun };
     if (!data.run) return;
     setRefreshRun(data.run);
+    setMessage(data.run.message || '已读取最新抓取任务状态。');
     if (data.run.status === 'queued' || data.run.status === 'running') setActiveRefreshId(data.run.id);
   }
 

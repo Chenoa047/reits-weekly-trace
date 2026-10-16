@@ -19,6 +19,7 @@ export type RefreshRun = {
 
 const LOCK_ID = 'global-refresh';
 const LOCK_TTL_MS = 3 * 60 * 60 * 1000;
+const QUEUED_TTL_MS = 15 * 60 * 1000;
 
 export async function queueRefreshRun(
   db: AppDb,
@@ -73,6 +74,12 @@ export async function beginScheduledRefreshRun(
 }
 
 export async function startQueuedRefreshRun(db: AppDb, runId: string) {
+  await expireStaleRefreshRuns(db);
+  const queued = await db
+    .prepare("SELECT id FROM fetch_runs WHERE id = ? AND status = 'queued' AND trigger = 'manual'")
+    .bind(runId)
+    .first();
+  if (!queued) return false;
   const now = new Date().toISOString();
   const locked = await acquireRefreshLock(db, runId, now);
   if (!locked) return false;
@@ -84,7 +91,23 @@ export async function startQueuedRefreshRun(db: AppDb, runId: string) {
     )
     .bind(runId)
     .run();
-  return result.rowsAffected === 1;
+  if (result.rowsAffected === 1) return true;
+  const current = await db
+    .prepare('SELECT status FROM fetch_runs WHERE id = ?')
+    .bind(runId)
+    .first<{ status: string }>();
+  if (current?.status !== 'running') await releaseRefreshLock(db, runId);
+  return false;
+}
+
+export async function failQueuedRefreshRun(db: AppDb, runId: string, message: string) {
+  const result = await db
+    .prepare("UPDATE fetch_runs SET status = 'failed', finished_at = ?, message = ? WHERE id = ? AND status = 'queued'")
+    .bind(new Date().toISOString(), message, runId)
+    .run();
+  if (result.rowsAffected !== 1) return false;
+  await releaseRefreshLock(db, runId);
+  return true;
 }
 
 export async function updateRefreshRunBuildId(db: AppDb, runId: string, buildId: string) {
@@ -137,15 +160,27 @@ export async function activeRefreshRun(db: AppDb) {
 
 export async function expireStaleRefreshRuns(db: AppDb, now = new Date()) {
   const cutoff = new Date(now.getTime() - LOCK_TTL_MS).toISOString();
+  const queuedCutoff = new Date(now.getTime() - QUEUED_TTL_MS).toISOString();
   const finishedAt = now.toISOString();
+  await db
+    .prepare(
+      `UPDATE fetch_runs SET finished_at = ?, status = 'failed',
+       message = '启动确认超时：提交超过十五分钟，网站仍未收到 CNB 的启动确认。CNB 可能排队或启动失败，请检查构建记录后重试；本任务不再接受迟到的启动。'
+       WHERE status = 'queued' AND started_at <= ?`,
+    )
+    .bind(finishedAt, queuedCutoff)
+    .run();
   await db
     .prepare(
       `UPDATE fetch_runs
        SET finished_at = ?, status = 'failed',
            message = COALESCE(message, '') || ' 任务超过三小时未完成，已自动标记为失败，可重新发起。'
-       WHERE status IN ('queued', 'running') AND started_at <= ?`,
+       WHERE status = 'running' AND started_at <= ?`,
     )
     .bind(finishedAt, cutoff)
+    .run();
+  await db
+    .prepare("DELETE FROM refresh_locks WHERE run_id IN (SELECT id FROM fetch_runs WHERE status = 'failed')")
     .run();
 }
 
