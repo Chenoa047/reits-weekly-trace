@@ -1,6 +1,7 @@
 import type { ReitsSourceFile } from '@/lib/reits-rules';
 import { describeFetchError } from './fetch-error.ts';
 import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
+import { replyAnswerText, replyValuationFacts } from './reply-facts.ts';
 
 const MAX_PAGES = 600;
 const MAX_TOTAL_EXCERPT_CHARS = 45_000;
@@ -188,6 +189,9 @@ export function selectRelevantText(text: string, stage: string, limit: number) {
 }
 
 function selectReplyText(text: string, limit: number) {
+  const facts = replyValuationFacts([{ kind: '回复反馈', originalTitle: '反馈意见的答复', url: '', content: text }]);
+  const required = facts.flatMap(fact => fact.evidence.map(item => `[第${item.page}页] ${item.quote}`)).join('\n');
+  text = replyAnswerText(text);
   const topics = [
     /(?:整体|合计)评估值|评估值.{0,40}\d|估值.{0,20}(?:下降|上升|调整)/,
     /估值参数|联营扣率|出租率|租金增长率|长期增长率|收缴率|折现率/,
@@ -197,14 +201,14 @@ function selectReplyText(text: string, limit: number) {
     const matches = [...text.matchAll(new RegExp(topic.source, 'g'))];
     return matches.length ? [matches[0].index, matches.at(-1)!.index] : [];
   }))];
-  if (!indices.length) return text.slice(0, limit);
-  const perTopicLimit = Math.floor(limit / indices.length) - 20;
-  return indices.sort((left, right) => left - right).map((index) => {
+  if (!indices.length) return `${required}\n${text}`.slice(0, limit);
+  const perTopicLimit = Math.max(0, Math.floor((limit - required.length - 1) / indices.length) - 20);
+  return `${required}\n${indices.sort((left, right) => left - right).map((index) => {
     const start = Math.max(0, index - Math.min(200, Math.floor(perTopicLimit / 4)));
     const excerpt = text.slice(start, start + perTopicLimit);
     const pageMarker = text.slice(0, start).match(/\[第\d+页\]/g)?.at(-1);
     return pageMarker && !excerpt.startsWith('[第') ? `${pageMarker} ${excerpt}` : excerpt;
-  }).join('\n').slice(0, limit);
+  }).join('\n')}`.slice(0, limit);
 }
 
 function selectFeedbackText(text: string, limit: number) {

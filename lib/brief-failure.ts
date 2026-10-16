@@ -54,6 +54,8 @@ export function describeBriefFailure(error: unknown) {
   if (/conflicting_subscription_terms/.test(message)) return '认购结果与发售公告数据存在冲突，待核验';
   if (/invalid_feedback_asset/.test(message)) return '反馈简报包含无关资产描述';
   if (/missing_reply_other_topics/.test(message)) return '回复简报遗漏其他回复事项';
+  if (/missing_reply_valuation/.test(message)) return '回复简报遗漏已披露的估值调整或对应证据';
+  if (/conflicting_reply_valuation/.test(message)) return '回复报告整体估值变化数据冲突，待核验';
   if (/invalid_opening|opening_contains_details/.test(message))
     return '首句格式不合格';
   if (/missing_expansion/.test(message)) return '扩募标识缺失';

@@ -52,6 +52,22 @@ void test('回复阶段用两类文件识别进度，但只把原始权益人回
   assert.deepEqual(selectStageFiles('回复反馈', [question, reply]), [reply]);
 });
 
+void test('同状态下只有申报方答复文件也属于回复，明确的交易所身份不能充当答复材料', () => {
+  const reply = file('关于《某项目申请受理反馈意见》的答复.pdf', '反馈意见及回复');
+  reply.issuerRole = '原始权益人';
+  for (const status of ['已反馈', '已问询']) assert.equal(inferProjectStage(status, [reply]), '回复反馈');
+  assert.deepEqual(missingRequiredMaterial('回复反馈', [{ ...reply, issuerRole: '交易所' }]), ['回复反馈']);
+  const question = file('某项目受理反馈意见.pdf', '反馈意见及回复');
+  assert.equal(inferProjectStage('已回复交易所意见', [question]), '反馈/问询');
+  assert.deepEqual(missingRequiredMaterial('反馈/问询', [{ ...question, issuerRole: '原始权益人' }]), ['反馈意见']);
+});
+
+void test('针对旧答复发出的新一轮反馈仍是交易所提问，不因标题含答复而判为回复', () => {
+  assert.equal(classifyDocument('关于某项目反馈意见答复的第二轮反馈意见.pdf'), '反馈意见');
+  assert.equal(classifyDocument('关于某项目审核问询函回复的第二轮审核问询函.pdf'), '问询函');
+  assert.equal(classifyDocument('关于《某项目第二轮反馈意见》的答复.pdf'), '回复反馈');
+});
+
 void test('反馈问询只用交易所原函归纳问题，招募说明书仅作为资产介绍补充', () => {
   const question = file('关于某项目挂牌申请文件的审核问询函.pdf', '问询与回复');
   const reply = file('关于某项目挂牌申请文件的审核问询函的回复.pdf', '问询与回复');

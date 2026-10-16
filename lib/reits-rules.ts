@@ -39,6 +39,11 @@ export function classifyDocument(title: string): ReitsDocumentKind {
   if (/基金份额发售公告/.test(title)) return '发售';
   if (/基金份额询价公告/.test(title)) return '询价';
   if (/招募说明书/.test(title)) return '招募说明书';
+  // A later exchange letter may mention an earlier reply in its title.
+  const question = Math.max(title.lastIndexOf('反馈意见'), title.lastIndexOf('问询函'));
+  const reply = Math.max(title.lastIndexOf('答复'), title.lastIndexOf('回复'));
+  if (question > reply && reply >= 0)
+    return title.lastIndexOf('反馈意见') > title.lastIndexOf('问询函') ? '反馈意见' : '问询函';
   if (
     /(?:反馈意见|问询函).*(?:答复|回复)|(?:答复|回复).*(?:反馈意见|问询函)/.test(
       title,
@@ -86,8 +91,8 @@ export function inferProjectStage(
     const questionDate = questions[0]?.publishedAt?.slice(0, 10);
     const replyDate = replies[0]?.publishedAt?.slice(0, 10);
     if (questionDate && replyDate && questionDate > replyDate) return '反馈/问询';
-    if (status === '已回复交易所意见') return '回复反馈';
-    return questions.length && replies.length ? '回复反馈' : '反馈/问询';
+    if (status === '已回复交易所意见' && !questions.length && !replies.length) return '回复反馈';
+    return replies.length ? '回复反馈' : '反馈/问询';
   }
   if (status === '已受理') return '受理';
   if (status === '已申报') return '申报';
@@ -172,10 +177,12 @@ export function missingRequiredMaterial(
   files: ReitsSourceFile[],
 ) {
   if (stage === '申报') return [];
+  if (stage === '回复反馈')
+    return files.some(file => file.kind === '回复反馈' && file.issuerRole !== '交易所') ? [] : ['回复反馈'];
+  if (stage === '反馈/问询')
+    return files.some(file => (file.kind === '反馈意见' || file.kind === '问询函') && file.issuerRole !== '原始权益人') ? [] : ['反馈意见'];
   const required: Partial<Record<ReitsStage, ReitsDocumentKind[]>> = {
     受理: ['招募说明书'],
-    '反馈/问询': ['反馈意见'],
-    回复反馈: ['回复反馈'],
     注册生效: ['招募说明书'],
     询价: ['询价'],
     发售: ['发售'],
@@ -184,7 +191,6 @@ export function missingRequiredMaterial(
   };
   const kinds = new Set(files.map((file) => file.kind));
   const expected = required[stage as ReitsStage] || [];
-  if (stage === '反馈/问询' && kinds.has('问询函')) return [];
   return expected.filter((kind) => !kinds.has(kind));
 }
 

@@ -45,6 +45,11 @@ void test('规则升级后不把旧版部分认购摘要保留为已核验完整
   assert.equal(briefAfterGenerationFailure(old, old, '认购结果简报遗漏已披露的数据').preserved, false);
 });
 
+void test('规则升级后旧版回复主题摘要不能继续作为完整稿保留', () => {
+  const old = { ...existing, progressType: '回复反馈', briefRulesVersion: '2026-10-09-reply-v2', brief: '10月15日，上交所网站显示，嘉实首开REIT就反馈意见进行了答复。此外，回复报告就其他问题进行了答复。' };
+  assert.equal(briefAfterGenerationFailure(old, old, '回复简报遗漏已披露的估值调整或对应证据').preserved, false);
+});
+
 void test('没有已核验简报时仅发布进度和失败原因', () => {
   const result = briefAfterGenerationFailure(existing, null, '规定原文件缺失');
   assert.equal(result.preserved, false);

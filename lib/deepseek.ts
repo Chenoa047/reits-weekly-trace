@@ -1,9 +1,10 @@
 import { briefFailureUsage, preserveBriefUsage } from './brief-failure.ts';
 import { selectRelevantText } from './pdf-text.ts';
 import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
-import { reviewRoundFor } from './reits-rules.ts';
+import { classifyDocument, reviewRoundFor } from './reits-rules.ts';
 import { subscriptionResultFacts } from './subscription-results.ts';
 import { prospectusAssetFacts } from './prospectus-assets.ts';
+import { replyAnswerText, replyOtherFacts, replyValuationFacts } from './reply-facts.ts';
 
 type BriefMaterial = {
   exchange: string;
@@ -32,7 +33,7 @@ const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
 const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-14-feedback-v6';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
-const REPLY_BRIEF_RULES_VERSION = '2026-10-09-reply-v2';
+const REPLY_BRIEF_RULES_VERSION = '2026-10-16-reply-v3';
 
 export function briefRulesVersionFor(stage: string) {
   if (stage === '询价') return INQUIRY_BRIEF_RULES_VERSION;
@@ -62,7 +63,7 @@ export async function generateDeepSeekBrief(
 ): Promise<DeepSeekBriefResult> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record);
+    const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record) || buildReplyFallback(record);
     if (fallback) return { ...fallback, inputTokens: 0, outputTokens: 0 };
     throw new Error('not_configured');
   }
@@ -82,7 +83,7 @@ export async function generateDeepSeekBrief(
       inputTokens += usage.inputTokens;
       outputTokens += usage.outputTokens;
       if (attempt === 0 && isRetryableBriefFailure(error)) continue;
-      const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record);
+      const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record) || buildReplyFallback(record);
       if (fallback)
         return { ...fallback, inputTokens, outputTokens };
       throw preserveBriefUsage(
@@ -184,7 +185,7 @@ async function requestDeepSeekBrief(
 
 function isRetryableBriefFailure(error: unknown) {
   const message = error instanceof Error ? error.message : '';
-  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_feedback_topics|missing_feedback_asset|missing_subscription|missing_reply_other_topics|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
+  return /no_verified_detail|incomplete_max_output_tokens|incomplete_response|timeout|provider_unavailable|rate_limited|request_failed|invalid_|missing_feedback_topics|missing_feedback_asset|missing_subscription|missing_reply_|missing_evidence|partial_evidence|evidence_number_mismatch|unsupported_number|incomplete_sentence/.test(
     message,
   );
 }
@@ -234,7 +235,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 5. 第一事实句之后的每个完整句子都必须提供证据。evidence.claim必须逐字复制该完整句子（可不含末尾句号），不能只截取句中一小段；evidence.quote必须逐字复制同一页原文件中的连续原文。一个句子引用多个文件时，为同一claim分别提供多条证据。
 6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。反馈/问询的资产规模可依据同一招募说明书中明确属于本次资产的同口径数据换算为万平方米或万千瓦，合计必须引用所有分项；不得将一期规模写成全项目规模，不得混用土地使用权面积、占地面积、建筑面积或登记建筑面积。
 7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
-8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。文件没有变化数据时不得硬写估值变化。
+8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。交易所显示“已反馈/已问询”不能单独区分这两个阶段，应按最新轮次的文件方向判断。答复PDF中复述的原问题、请管理人补充披露等要求不能充当已经作答的证据，应引用“答复/回复”之后的实际说明。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。已明确披露的整体估值调整必须保留；不得将所有参数一概称为下调。文件没有变化数据时不得硬写估值变化。
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
 10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
@@ -365,7 +366,7 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     if (!file?.content) continue;
     if (!isAllowedEvidenceSource(record.progressType, claim, file, item.quote))
       continue;
-    const page = findEvidencePage(file.content, item.quote);
+    const page = findEvidencePage(record.progressType === '回复反馈' ? replyAnswerText(file.content) : file.content, item.quote);
     if (!page) continue;
     candidateEvidence.push({
       fileUrl: file.url,
@@ -421,6 +422,14 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
     safeSentences,
     record.progressType,
   );
+  if (record.progressType === '回复反馈') {
+    const facts = replyValuationFacts(record.files);
+    if (facts.length) {
+      const details = orderedSentences.filter(sentence => stageSentenceRank(sentence, '回复反馈') > 2);
+      const evidence = [...facts.flatMap(fact => fact.evidence), ...candidateEvidence.filter(item => details.includes(item.claim))];
+      return { brief: `${canonicalBriefOpening(record)}。${[...facts.map(fact => fact.claim), ...details].join('。')}。`, evidence };
+    }
+  }
   if (record.progressType === '认购结果') {
     const facts = subscriptionResultFacts(record.files);
     const assets = orderedSentences.filter(isAssetIntroductionSentence);
@@ -565,6 +574,16 @@ export function buildSubscriptionResultFallback(record: BriefMaterial) {
   return { brief, evidence };
 }
 
+export function buildReplyFallback(record: BriefMaterial) {
+  if (record.progressType !== '回复反馈') return null;
+  const facts = [...replyValuationFacts(record.files), ...replyOtherFacts(record.files)];
+  if (!facts.length) return null;
+  const brief = `${canonicalBriefOpening(record)}。${facts.map(fact => fact.claim).join('。')}。`;
+  const evidence = facts.flatMap(fact => fact.evidence);
+  validateBrief(brief, record, evidence);
+  return { brief, evidence };
+}
+
 function feedbackTopicLabel(title: string) {
   const definitions = [
     {
@@ -685,7 +704,9 @@ function isAllowedEvidenceSource(
     );
   }
   if (stage === '回复反馈') {
-    return file.kind === '回复反馈' && file.issuerRole !== '交易所';
+    return file.kind === '回复反馈' && file.issuerRole !== '交易所' &&
+      !['反馈意见', '问询函'].includes(classifyDocument(file.originalTitle)) &&
+      !/请(?:管理人|基金管理人|评估机构|律师|你公司|贵公司)/.test(quote.replace(/\s/g, ''));
   }
   if (stage === '认购结果') return file.kind === '招募说明书' && isAssetIntroductionSentence(claim) &&
     !/认购|募集|配售|确认比例|基金代码|询价|发售|元\/份|估值|评估值/.test(claim);
@@ -857,6 +878,7 @@ function orderDetailSentences(sentences: string[], stage: string) {
 }
 
 function briefMaximumLength(stage: string) {
+  if (stage === '回复反馈') return 600;
   if (stage === '反馈/问询') return 450;
   if (stage === '认购结果') return 700;
   if (stage === '询价' || stage === '发售') return 600;
@@ -989,17 +1011,25 @@ export function validateBrief(
     validateAssetCompleteness(value, record, 'missing_subscription_asset');
   }
   if (record.progressType === '回复反馈') {
+    if (replyValuationFacts(record.files).some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
+      !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
+      throw new Error('missing_reply_valuation');
     const replyFiles = record.files.filter((file) =>
       file.kind === '回复反馈' && file.issuerRole !== '交易所');
     const otherTopics = REPLY_OTHER_TOPICS.filter((topic) =>
-      replyFiles.some((file) => topic.test(file.content || '')));
+      replyFiles.some((file) => topic.test(replyAnswerText(file.content || ''))));
     const hasOtherReplies = value.split('。').slice(1).some((sentence) =>
       !/估值|评估值|评估参数|折现率|联营扣率/.test(sentence) &&
       otherTopics.some((topic) => topic.test(sentence) &&
         (evidence === undefined || evidence.some((item) =>
           normalizeClaim(item.claim) === sentence && topic.test(item.quote) &&
-          replyFiles.some((file) => file.url === item.fileUrl)))));
+          replyFiles.some((file) => file.url === item.fileUrl && findEvidencePage(replyAnswerText(file.content || ''), item.quote) === item.page)))));
     if (otherTopics.length && !hasOtherReplies)
+      throw new Error('missing_reply_other_topics');
+    if (evidence !== undefined && value.split('。').slice(1).some(sentence =>
+      !/估值|评估值|评估参数|折现率|联营扣率/.test(sentence) && REPLY_OTHER_TOPICS.some(topic =>
+        topic.test(sentence) && !evidence.some(item => item.claim === sentence && topic.test(item.quote) &&
+          replyFiles.some(file => file.url === item.fileUrl && findEvidencePage(replyAnswerText(file.content || ''), item.quote) === item.page)))))
       throw new Error('missing_reply_other_topics');
   }
   if (evidence === undefined) validateNumbers(value, record);
