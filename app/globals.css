@@ -447,6 +447,11 @@ textarea:focus-visible {
   justify-self: start;
 }
 
+.blackboard-entry form {
+  display: grid;
+  gap: 14px;
+}
+
 .blackboard-toolbar {
   display: flex;
   align-items: center;

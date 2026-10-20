@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.16.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "test:rules": "node --experimental-strip-types --test tests/reits-rules.test.ts tests/pdf-text.test.ts tests/szse-announcements.test.ts tests/visitor-edits.test.ts",
     "test:brief": "node --experimental-strip-types --test tests/deepseek-brief.test.ts tests/brief-failure.test.ts tests/inquiry-brief.test.ts tests/feedback-brief.test.ts tests/offering-brief.test.ts tests/reply-brief.test.ts tests/subscription-brief.test.ts",
-    "test:jobs": "node --experimental-strip-types --test tests/database-network.test.ts tests/refresh-runs.test.ts tests/refresh-error.test.ts tests/reits-network-error.test.ts tests/refresh-brief.test.ts tests/blackboard.test.ts",
+    "test:jobs": "node --experimental-strip-types --test tests/database-network.test.ts tests/refresh-runs.test.ts tests/refresh-error.test.ts tests/reits-network-error.test.ts tests/refresh-brief.test.ts tests/blackboard.test.ts tests/blackboard-auth.test.ts",
     "test": "npm run test:rules && npm run test:brief && npm run test:jobs",
     "refresh": "tsx scripts/run-refresh.ts",
     "db:generate": "drizzle-kit generate"
@@ -22,6 +22,8 @@
     "@base-ui/react": "1.7.0",
     "@libsql/client": "^0.18.0",
     "@shadcn/react": "0.3.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",

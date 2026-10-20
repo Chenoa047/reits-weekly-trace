@@ -19,7 +19,7 @@ async function boardDb() {
 
 function request(input?: unknown, suffix = '') {
   return new Request(`https://example.com/api/blackboard${suffix}`, input === undefined ? undefined : {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+    method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://example.com' }, body: JSON.stringify(input),
   });
 }
 
@@ -110,7 +110,7 @@ void test('不完整请求和未知操作明确报错，内容中的SQL字符按
   const { client, db } = await boardDb();
   try {
     const dependencies = { identity: async () => ({ subject: 'account-a' }), db: () => db };
-    assert.equal((await visitorBlackboardResponse(new Request('https://example.com', { method: 'POST', body: '{' }), dependencies)).status, 400);
+    assert.equal((await visitorBlackboardResponse(new Request('https://example.com', { method: 'POST', headers: { origin: 'https://example.com', 'content-type': 'application/json' }, body: '{' }), dependencies)).status, 400);
     assert.equal((await visitorBlackboardResponse(request({ action: 'unknown' }), dependencies)).status, 400);
     assert.equal((await visitorBlackboardResponse(request({ action: 'send', id: 'a', body: 'hello' }), dependencies)).status, 404);
     await enterBlackboard(db, 'account-a', contact);

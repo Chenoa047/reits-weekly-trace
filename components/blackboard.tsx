@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BlackboardThread } from '@/lib/blackboard';
+import { BlackboardLogin } from './blackboard-login';
 
 type BoardResponse = { thread?: BlackboardThread | null; threads?: BlackboardThread[]; message?: string };
 
@@ -22,27 +23,55 @@ async function boardRequest(url: string, init?: RequestInit): Promise<BoardRespo
 }
 
 export function BlackboardPanel() {
+  return <section className="blackboard-shell">
+    <aside className="blackboard-intro">
+      <span className="blackboard-kicker">PRIVATE MESSAGE BOARD</span>
+      <h2>小黑板</h2>
+      <p className="blackboard-greeting">给 Chenyu 留言，欢迎交流！</p>
+      <p className="blackboard-privacy">与 Chenyu 的私密对话</p>
+      <div className="blackboard-demo-note">
+        <strong>隐私说明</strong>
+        <p>昵称、联系邮箱和留言保存在网站数据库中，仅您与管理员可以查看。登录邮箱由登录服务验证；联系邮箱不作为读取对话的凭证。</p>
+        <p>请使用同一访客账号查看历史留言，在共用设备上使用后退出登录。此前的浏览器演示留言不会自动上传。</p>
+      </div>
+    </aside>
+    <div className="blackboard-workspace">
+      <BlackboardLogin>{user => <BlackboardConversation key={user.id} loginEmail={user.email} />}</BlackboardLogin>
+    </div>
+  </section>;
+}
+
+function BlackboardConversation({ loginEmail }: { loginEmail: string }) {
   const [thread, setThread] = useState<BlackboardThread | null>(null);
   const [nickname, setNickname] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(loginEmail);
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   const [available, setAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const pendingMessage = useRef<{ id: string; body: string } | null>(null);
+  const revision = useRef(0);
+  const mutating = useRef(false);
 
   const load = useCallback(async () => {
+    if (mutating.current) return;
+    const current = ++revision.current;
     try {
       const data = await boardRequest('/api/blackboard');
+      if (current !== revision.current) return;
       setThread(data.thread || null);
       setAvailable(true);
       setNotice('');
     } catch (error) {
-      if (error instanceof BoardRequestError && error.status === 401) setThread(null);
+      if (current !== revision.current) return;
+      if (error instanceof BoardRequestError && error.status === 401) {
+        setThread(null);
+        window.dispatchEvent(new Event('blackboard-session-expired'));
+      }
       setAvailable(false);
       setNotice(error instanceof Error ? error.message : '暂时无法读取留言。');
-    } finally { setLoading(false); }
+    } finally { if (current === revision.current) setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -52,23 +81,32 @@ export function BlackboardPanel() {
   }, [load]);
 
   async function enter() {
-    if (busy || !available) return;
+    if (mutating.current || !available) return;
+    mutating.current = true;
+    const current = ++revision.current;
     setBusy(true);
     try {
       const data = await boardRequest('/api/blackboard', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'enter', nickname, email }),
       });
+      if (current !== revision.current) return;
       if (!data.thread) throw new BoardRequestError(502, '尚未确认对话已保存，请重试。');
       setThread(data.thread || null);
       setNotice('已进入您的私密留言空间。');
-    } catch (error) { setNotice(error instanceof Error ? error.message : '暂时无法进入留言空间。'); }
-    finally { setBusy(false); }
+    } catch (error) {
+      if (current !== revision.current) return;
+      if (error instanceof BoardRequestError && error.status === 401) window.dispatchEvent(new Event('blackboard-session-expired'));
+      setNotice(error instanceof Error ? error.message : '暂时无法进入留言空间。');
+    }
+    finally { mutating.current = false; setBusy(false); }
   }
 
   async function send() {
     const body = draft.trim();
-    if (!body || busy || !available) return;
+    if (!body || mutating.current || !available) return;
+    mutating.current = true;
+    const current = ++revision.current;
     const message = pendingMessage.current?.body === body ? pendingMessage.current : { id: crypto.randomUUID(), body };
     pendingMessage.current = message;
     setBusy(true);
@@ -77,33 +115,26 @@ export function BlackboardPanel() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'send', ...message }),
       });
+      if (current !== revision.current) return;
       if (!data.thread) throw new BoardRequestError(502, '尚未确认留言已保存，内容已保留，请重试。');
       setThread(data.thread || null);
       setDraft('');
       pendingMessage.current = null;
       setNotice('留言已送达，Chenyu 可以在后台查看并回复。');
-    } catch (error) { setNotice(error instanceof Error ? error.message : '发送失败，内容已保留，请重试。'); }
-    finally { setBusy(false); }
+    } catch (error) {
+      if (current !== revision.current) return;
+      if (error instanceof BoardRequestError && error.status === 401) window.dispatchEvent(new Event('blackboard-session-expired'));
+      setNotice(error instanceof Error ? error.message : '发送失败，内容已保留，请重试。');
+    }
+    finally { mutating.current = false; setBusy(false); }
   }
 
   return (
-    <section className="blackboard-shell">
-      <aside className="blackboard-intro">
-        <span className="blackboard-kicker">PRIVATE MESSAGE BOARD</span>
-        <h2>小黑板</h2>
-        <p className="blackboard-greeting">给 Chenyu 留言，欢迎交流！</p>
-        <p className="blackboard-privacy">与 Chenyu 的私密对话</p>
-        <div className="blackboard-demo-note">
-          <strong>隐私说明</strong>
-          <p>开放后，昵称、邮箱和留言将保存在网站数据库中，仅您与管理员可以查看。邮箱用于联系，不作为读取对话的凭证。</p>
-          <p>登录功能接入前暂不接收留言。此前的浏览器演示留言不会自动上传。</p>
-        </div>
-      </aside>
-      <div className="blackboard-workspace">
+    <>
         {!thread ? (
           <div className="blackboard-entry">
-            <h3>{loading ? '正在连接小黑板…' : available ? '进入您的私密留言空间' : '私密留言暂未开放'}</h3>
-            <p>登录访客账号后，填写称呼和联系邮箱即可开始对话。</p>
+            <h3>{loading ? '正在连接小黑板…' : available ? '进入您的私密留言空间' : '暂时无法读取留言'}</h3>
+            <p>您已登录访客账号，填写称呼和联系邮箱即可开始对话。</p>
             <label htmlFor="blackboard-nickname">怎么称呼您？</label>
             <input id="blackboard-nickname" className="field" type="text" autoComplete="off" maxLength={30} value={nickname} disabled={!available || busy} onChange={event => setNickname(event.target.value)} />
             <label htmlFor="blackboard-email">联系邮箱</label>
@@ -127,8 +158,7 @@ export function BlackboardPanel() {
         )}
         {!available && !loading ? <button className="btn-muted" onClick={load}>重新检查连接</button> : null}
         {notice ? <output className="blackboard-notice">{notice}</output> : null}
-      </div>
-    </section>
+    </>
   );
 }
 
@@ -188,7 +218,7 @@ export function AdminBlackboardPanel({ adminPassword }: { adminPassword: string 
       <header><div><p>小黑板留言</p><h2>访客留言管理</h2></div>
         <span>{threads.length} 位访客</span><button className="btn-muted" onClick={load} disabled={busy}>刷新留言</button>
       </header>
-      <p className="blackboard-demo-guide">访客登录接入后，跨设备收到的留言会统一出现在这里。</p>
+      <p className="blackboard-demo-guide">访客提交的留言会统一出现在这里，回复后对方可在自己的账号查看。</p>
       {notice ? <output className="blackboard-notice">{notice}</output> : null}
       {threads.length ? (
         <div className="admin-blackboard-grid">

@@ -2,10 +2,11 @@ import { BlackboardError } from './blackboard.ts';
 
 export type BlackboardVisitorIdentity = { subject: string };
 
-// Integration boundary: the owner supplies an existing, server-verified visitor login here.
-// Return the provider's stable public account ID, or null when logged out.
-// Never trust identity/email supplied in request bodies, query strings or unverified headers.
-// No credentials or sessions are created, read, or managed by this placeholder.
+// Read only the stable public account ID returned by server-verified Supabase identity.
 export async function verifiedBlackboardVisitor(_request: Request): Promise<BlackboardVisitorIdentity | null> {
-  throw new BlackboardError(503, '访客登录暂未开放，私密留言尚不可用。');
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_KEY)
+    throw new BlackboardError(503, '访客登录暂未开放，私密留言尚不可用。');
+  const { createVisitorAuthProvider } = await import('./blackboard-supabase.ts');
+  const user = await (await createVisitorAuthProvider()).currentUser();
+  return user ? { subject: `supabase:${user.id}` } : null;
 }
