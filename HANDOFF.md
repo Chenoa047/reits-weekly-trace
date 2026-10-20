@@ -2,7 +2,7 @@
 
 更新日期：2026-10-20（北京时间）。先读本文，再检查 Git 状态和当前公开页面。**本地修复、远端推送、生产部署、数据库重生成、线上验收是五个不同状态，不得相互替代。**
 
-最新接续任务：继续完成访客登录上线。接入代码本地提交`bd0b44f`，178项隔离测试通过，Turso表及索引已建。Supabase项目已Healthy，用户已保存SMTP；两种数字验证码邮件模板已保存，Site URL正确。用户选择继续使用163发件邮箱，需在Brevo完成该邮箱验证。Vercel环境变量、推送部署和真实登录验收未确认完成，见第19节及 `BLACKBOARD_SETUP.md`。
+最新接续任务：继续完成访客登录上线。接入代码本地提交`bd0b44f`，178项隔离测试通过，Turso表及索引已建。Supabase项目已Healthy，用户已保存SMTP；两种数字验证码邮件模板已保存，Site URL正确。用户选择的163发件邮箱已在Brevo核对为Verified。Chrome已打开Vercel项目入口但跳到登录页，需用户本人登录原账号；Vercel环境变量、推送部署和真实登录验收未完成，见第19节及 `BLACKBOARD_SETUP.md`。
 
 ### 新会话先看：当前完成状态
 
@@ -408,4 +408,5 @@ git diff --check
 - 当前后台要求先配自定义SMTP才能编辑模板，之前“先改模板再配置SMTP”的顺序已更正。助手帮助选择Brevo Select Free、确认其已有一个Verified发件人，填写Supabase公共SMTP参数；SMTP Login和SMTP key由用户本人填写并保存，助手未访问Brevo SMTP密钥页、读取或操作真实密钥。密码显示为掩码，不点击显示/复制或打开密码管理器。
 - 随后助手已在网页保存Magic link or OTP及Confirm sign up两种中文数字验证码邮件，均使用模板占位符`{{ .Token }}`。首次用户会走注册确认流程，不能只改Magic Link。已核对官方supabase/auth的magic_link.go新用户转Signup行为。模板保存后按钮禁用；截图`/private/tmp/reits-magic-otp-template-saved-20261020.png`、`/private/tmp/reits-signup-otp-template-saved-20261020.png`只包含模板占位符，没有真实验证码。
 - 检查发现Supabase发件邮箱与Brevo已有Verified邮箱不一致。用户经明确询问选择“继续使用163邮箱”；因此不擅自改成Gmail。已按用户选择在Brevo添加163发件人；下一步需要用户本人完成邮箱验证码验证，助手不得读取、接收或填写验证码。未发起真实网站登录测试，未声称SMTP送达通过。
-- 登录服务剩余：Brevo该邮箱Verified、用户本人填写Vercel两个服务端变量、本人推送GitHub/CNB并等待Vercel Ready/Production、真实新访客和老访客登录/退出/跨设备留言验收。保持密钥禁令，不打开Brevo SMTP & API密钥页或Supabase API Keys页，不请求带密钥截图。
+- 用户随后报告验证完成，助手在Brevo Senders列表确认163邮箱已Verified，与Supabase发件地址一致。未读取验证码或访问邮件。已在Chrome新标签打开Vercel项目入口，当前跳到Vercel登录页，交由用户本人登录此前部署网站的原账号，不新建账号。
+- 登录服务剩余：用户本人登录Vercel并填写两个服务端变量、本人推送GitHub/CNB并等待Vercel Ready/Production、真实新访客和老访客登录/退出/跨设备留言验收。保持密钥禁令，不打开Brevo SMTP & API密钥页或Supabase API Keys页，不请求带密钥截图。
