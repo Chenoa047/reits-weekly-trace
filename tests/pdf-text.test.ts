@@ -80,3 +80,12 @@ void test('长问询保留全部一级标题，不限于前八项也不吞入括
   const selected = selectRelevantText(text, '反馈/问询', 4000);
   for (const number of numbers) assert.ok(selected.includes(`${number}、主题`));
 });
+
+void test('长扫描件精简后仍保留编号带空格的全部一级标题和其他意见', () => {
+  const text = `[第1页] 一 、 业务参与人资质及履职能力。${'详细问题'.repeat(5000)}\n[第5页] 二 、 不动产合规情况。${'详细问题'.repeat(5000)}\n[第9页] 三 、 其他反馈意见。请说明回收资金用途。`;
+  const selected = selectRelevantText(text, '反馈/问询', 4000);
+  assert.match(selected, /一 、 业务参与人资质及履职能力/);
+  assert.match(selected, /二 、 不动产合规情况/);
+  assert.match(selected, /三 、 其他反馈意见。请说明回收资金用途/);
+  assert.ok(selected.length <= 4000);
+});

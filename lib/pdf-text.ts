@@ -223,8 +223,9 @@ function selectReplyText(text: string, limit: number) {
 }
 
 function selectFeedbackText(text: string, limit: number) {
-  const headings = [...text.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}[、.．]\s*[^。；\n（(]{2,55}/g)];
-  const other = [...text.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)].at(-1);
+  const headings = [...text.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}\s*[、.．]\s*[^。；\n（(]{2,55}/g)]
+    .filter(heading => !/[（(〈《]\s*$/.test(text.slice(0, heading.index)));
+  const other = [...text.matchAll(/[一二三四五六七八九十]{1,3}\s*[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)].at(-1);
   const excerpt = (index: number, value: string) => `${text.slice(0, index).match(/\[第\d+页\]/g)?.at(-1) || ''} ${value}`;
   // Reserve the budget for all main headings, rather than consuming it on the first few detailed questions.
   const required = headings.map(heading => excerpt(heading.index, heading[0])).join('\n') +

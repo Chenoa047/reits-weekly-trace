@@ -102,7 +102,7 @@ void test('深交所问询与上交所反馈使用同一主题结构生成可核
   );
 });
 
-void test('问询简报服务连续不可用时仍发布基于交易所原函的保底正文', async () => {
+void test('问询简报直接使用可核验原函，不依赖模型服务', async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.DEEPSEEK_API_KEY;
   process.env.DEEPSEEK_API_KEY = 'non-secret-test-placeholder';
@@ -131,7 +131,7 @@ void test('问询简报服务连续不可用时仍发布基于交易所原函的
         },
       ],
     });
-    assert.equal(calls, 2);
+    assert.equal(calls, 0);
     assert.match(result.brief, /审核问询函主要围绕业务参与人资质及履职能力/);
     assert.equal(result.evidence.length, 5);
   } finally {
@@ -214,7 +214,7 @@ void test('非申报项目只有固定首句或零证据时不能计为完整简
 void test('模型输出达到上限后使用精简材料自动重试并累计用量', async () => {
   process.env.DEEPSEEK_API_KEY = 'non-secret-test-placeholder';
   const originalFetch = globalThis.fetch;
-  const claim = '反馈意见主要关注项目合规性和估值合理性';
+  const claim = '本次询价区间为3.00至4.00元/份';
   const inputs: string[] = [];
   let calls = 0;
   globalThis.fetch = async (_input, init) => {
@@ -238,8 +238,8 @@ void test('模型输出达到上限后使用精简材料自动重试并累计用
       JSON.stringify({
         status: 'completed',
         output_text: JSON.stringify({
-          brief: `9月15日，上交所网站显示，某REIT获反馈。${claim}。`,
-          evidence: [{ claim, fileIndex: 1, quote: '一、项目合规性和估值合理性。' }],
+          brief: `9月15日，上交所网站显示，某REIT发布基金份额询价公告。${claim}。`,
+          evidence: [{ claim, fileIndex: 1, quote: `${claim}。` }],
         }),
         usage: { input_tokens: 40, output_tokens: 10 },
       }),
@@ -249,16 +249,16 @@ void test('模型输出达到上限后使用精简材料自动重试并累计用
   try {
     const result = await generateDeepSeekBrief({
       ...submission,
-      progressType: '反馈/问询',
-      status: '已反馈',
+      progressType: '询价',
+      status: '询价',
       files: [
         {
-          label: '反馈意见',
+          label: '询价公告',
           url: 'https://example.com/question.pdf',
-          kind: '反馈意见',
-          originalTitle: '受理反馈意见',
-          issuerRole: '交易所',
-          content: `[第2页] 一、项目合规性和估值合理性。\n${'补充材料'.repeat(10_000)}`,
+          kind: '询价',
+          originalTitle: '询价公告',
+          issuerRole: '披露主体',
+          content: `[第2页] ${claim}。\n${'补充材料'.repeat(10_000)}`,
         },
       ],
     });

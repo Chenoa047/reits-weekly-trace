@@ -45,3 +45,11 @@ void test('校验失败仍保留模型用量', () => {
     outputTokens: 321,
   });
 });
+
+void test('区分问询原文不可读和模型请求失败，提示只含固定安全分类', () => {
+  assert.equal(describeBriefFailure(new Error('unreadable_feedback_headings')), '反馈/问询原文一级标题未识别，请核查扫描件OCR');
+  assert.equal(describeBriefFailure(new Error('timeout')), '简报模型请求超时');
+  assert.equal(describeBriefFailure(new Error('rate_limited')), '简报模型服务限流（HTTP 429）');
+  assert.equal(describeBriefFailure(new Error('provider_unavailable')), '简报模型服务返回异常（HTTP 5xx）');
+  assert.equal(describeBriefFailure(new Error('request_failed')), '简报模型请求未成功');
+});

@@ -30,7 +30,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v8';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v9';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-16-reply-v3';
@@ -61,9 +61,14 @@ export type BriefEvidence = {
 export async function generateDeepSeekBrief(
   record: BriefMaterial,
 ): Promise<DeepSeekBriefResult> {
+  if (record.progressType === '反馈/问询') {
+    const verified = buildExchangeQuestionFallback(record);
+    if (!verified) throw new Error('unreadable_feedback_headings');
+    return { ...verified, inputTokens: 0, outputTokens: 0 };
+  }
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record) || buildReplyFallback(record);
+    const fallback = buildSubscriptionResultFallback(record) || buildReplyFallback(record);
     if (fallback) return { ...fallback, inputTokens: 0, outputTokens: 0 };
     throw new Error('not_configured');
   }
@@ -83,7 +88,7 @@ export async function generateDeepSeekBrief(
       inputTokens += usage.inputTokens;
       outputTokens += usage.outputTokens;
       if (attempt === 0 && isRetryableBriefFailure(error)) continue;
-      const fallback = buildExchangeQuestionFallback(record) || buildSubscriptionResultFallback(record) || buildReplyFallback(record);
+      const fallback = buildSubscriptionResultFallback(record) || buildReplyFallback(record);
       if (fallback)
         return { ...fallback, inputTokens, outputTokens };
       throw preserveBriefUsage(
@@ -622,7 +627,8 @@ function questionHeadings(content: string) {
   for (const pageText of content.split(/(?=\[第\d+页\])/)) {
     const page = Number(pageText.match(/^\[第(\d+)页\]/)?.[1]);
     if (!page) continue;
-    for (const heading of pageText.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}[、.．]\s*([^。；\n（(]{2,55})/g)) {
+    for (const heading of pageText.matchAll(/(?<![（(一二三四五六七八九十])[一二三四五六七八九十]{1,3}\s*[、.．]\s*([^。；\n（(]{2,55})/g)) {
+      if (/[（(〈《]\s*$/.test(pageText.slice(0, heading.index))) continue;
       const title = heading[1].normalize('NFKC').replace(/\s/g, '');
       if (/^(?:关于)?其他(?:反馈|问询)/.test(title)) return topics;
       if (topics.some((topic) => topic.title === title)) continue;
@@ -633,7 +639,7 @@ function questionHeadings(content: string) {
 }
 
 function summarizeOtherFeedback(content: string) {
-  const headings = [...content.matchAll(/[一二三四五六七八九十]{1,3}[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)];
+  const headings = [...content.matchAll(/[一二三四五六七八九十]{1,3}\s*[、.．]\s*其他(?:反馈意见|反馈问题|问询问题|问询事项)/g)];
   const heading = headings.at(-1);
   if (!heading || heading.index === undefined) return null;
   const tail = content.slice(heading.index + heading[0].length);

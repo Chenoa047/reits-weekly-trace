@@ -47,6 +47,7 @@ export function describeBriefFailure(error: unknown) {
   if (/evidence_number_mismatch|unsupported_number/.test(message))
     return '数字与原文不一致';
   if (/no_verified_detail/.test(message)) return '未生成可核验正文';
+  if (/unreadable_feedback_headings/.test(message)) return '反馈/问询原文一级标题未识别，请核查扫描件OCR';
   if (/missing_feedback_topics/.test(message)) return '反馈简报主要关注事项不完整';
   if (/missing_feedback_asset/.test(message)) return '反馈简报遗漏已披露的资产名称、位置或规模';
   if (/missing_subscription_fields/.test(message)) return '认购结果简报遗漏已披露的认购或配售数据';
@@ -64,8 +65,10 @@ export function describeBriefFailure(error: unknown) {
   if (/incomplete_max_output_tokens/.test(message)) return '模型输出达到上限';
   if (/incomplete_content_filter/.test(message)) return '模型输出触发内容过滤';
   if (/incomplete_response/.test(message)) return '模型响应不完整';
-  if (/timeout|provider_unavailable|rate_limited|request_failed/.test(message))
-    return '简报服务暂时不可用';
+  if (/timeout/.test(message)) return '简报模型请求超时';
+  if (/rate_limited/.test(message)) return '简报模型服务限流（HTTP 429）';
+  if (/provider_unavailable/.test(message)) return '简报模型服务返回异常（HTTP 5xx）';
+  if (/request_failed/.test(message)) return '简报模型请求未成功';
   if (/not_configured|authentication_failed|insufficient_balance/.test(message))
     return '简报服务配置或余额异常';
   return '简报生成失败';

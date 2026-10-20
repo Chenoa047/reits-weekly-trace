@@ -8,6 +8,7 @@ import {
   BRIEF_RULES_VERSION,
   briefRulesVersionFor,
   buildExchangeQuestionFallback,
+  generateDeepSeekBrief,
   canonicalBriefOpening,
   needsBriefRegeneration,
   parseBriefResponse,
@@ -58,7 +59,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v8');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v9');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -411,6 +412,7 @@ void test('旧版反馈完整稿和仅进度稿都会按当前规则重新生成
   const incoming = { ...expansionRecord, brief: `${canonicalBriefOpening(expansionRecord)}。反馈意见主要围绕合规情况展开。` };
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-14-feedback-v6' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v7' }, incoming), true);
+  assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v8' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, brief: `${canonicalBriefOpening(incoming)}。`, briefRulesVersion: briefRulesVersionFor('反馈/问询') }, incoming), true);
   assert.equal(briefRulesVersionFor('认购结果'), '2026-10-16-subscription-v2');
 });
@@ -423,7 +425,7 @@ void test('模型服务失败或返回无效正文时，扩募仍能生成包含
       let calls = 0;
       globalThis.fetch = async () => { calls++; return response(); };
       const result = await generateDeepSeekBrief(${JSON.stringify(expansionRecord)});
-      assert.equal(calls, 2);
+      assert.equal(calls, 0);
       assert.match(result.brief, /璟耀项目、璟博项目/);
       assert.match(result.brief, /20\\.77万平方米/);
       assert.equal(result.evidence.filter(item => item.claim.includes('建筑面积')).length, 2);
@@ -518,4 +520,47 @@ void test('鹏瑞利遇到模型不可用或只返回进度时仍从原文生成
     env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, NODE_ENV: 'test', DEEPSEEK_API_KEY: 'test-placeholder' }, encoding: 'utf8',
   });
   assert.equal(child.status, 0, child.stderr);
+});
+
+// Tesseract OCR excerpts from the actual ten-page inquiry, not synthetic topics.
+const pengruiOcr = '[第1页] 一、业务参与人资质及履职能力 〈一) 关于原始权益人 1. 关于资产重组。\n[第3页] 二、不动产合规情况。\n[第4页] 三、项目经营与财务情况 《一) 关于项目运营情况 1. 关于运营情况。\n[第6页] 四、资产评估与估值合理性。\n[第8页] 五、基金运作与治理 1. 关于运营管理费用。六、其他反馈意见 1. 关于回收资金。';
+
+void test('鹏瑞利真实OCR标题与资产可核验时先直接成稿，网络请求为零', async (t) => {
+  const network = t.mock.method(globalThis, 'fetch', async () => { throw new Error('must_not_request_model'); });
+  const incoming = { ...pengruiRecord, files: [{ ...pengruiRecord.files[0], content: pengruiOcr }, pengruiRecord.files[1]] };
+  const result = await generateDeepSeekBrief(incoming);
+  assert.equal(network.mock.callCount(), 0);
+  assert.equal(result.inputTokens, 0);
+  assert.equal(result.outputTokens, 0);
+  assert.match(result.brief, /资质及履职能力、不动产项目合规性、项目经营与财务情况、资产评估与估值合理性和基金运作与治理机制/);
+  assert.match(result.brief, /12\.17万平方米/);
+  assert.equal(result.evidence.length, 9);
+  for (const item of result.evidence) {
+    const file = incoming.files.find(file => file.url === item.fileUrl)!;
+    assert.ok(file.content.split(/(?=\[第\d+页\])/).some(page => page.startsWith(`[第${item.page}页]`) && page.normalize('NFKC').replace(/\s/g, '').includes(item.quote.normalize('NFKC').replace(/\s/g, ''))));
+  }
+});
+
+void test('OCR编号与顿号间有空格时仍识别全部一级主题，并保留实际原文', () => {
+  const content = pengruiOcr.replaceAll('、', ' 、 ');
+  const incoming = { ...pengruiRecord, files: [{ ...pengruiRecord.files[0], content }, pengruiRecord.files[1]] };
+  const result = buildExchangeQuestionFallback(incoming)!;
+  assert.ok(result);
+  assert.match(result.brief, /资质及履职能力、不动产项目合规性、项目经营与财务情况、资产评估与估值合理性和基金运作与治理机制/);
+  assert.equal(result.evidence.filter(item => item.fileUrl === incoming.files[0].url).length, 6);
+  assert.ok(result.evidence.some(item => item.quote.startsWith('一 、 ')));
+});
+
+void test('扫描原文未识别出一级标题时报告原文原因，不调用模型或误报服务不可用', async (t) => {
+  const network = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 503 }));
+  const incoming = { ...pengruiRecord, files: [{ ...pengruiRecord.files[0], content: '[第1页] 零星OCR文字，无可核验一级标题。' }, pengruiRecord.files[1]] };
+  await assert.rejects(generateDeepSeekBrief(incoming), /unreadable_feedback_headings/);
+  assert.equal(network.mock.callCount(), 0);
+});
+
+void test('OCR编号带空格时，括号内细项仍不能升为一级主题', () => {
+  const content = '[第1页] 一 、 关于合规情况。（ 一 、 配套手续）。\n[第2页] 二 、 其他反馈意见。请补充信息披露。';
+  const result = buildExchangeQuestionFallback({ ...pengruiRecord, files: [{ ...pengruiRecord.files[0], content }, pengruiRecord.files[1]] })!;
+  assert.match(result.brief, /主要围绕合规情况等方面/);
+  assert.doesNotMatch(result.brief, /配套手续/);
 });
