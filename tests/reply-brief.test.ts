@@ -124,6 +124,66 @@ void test('只有参数调整而未披露整体估值变化时，概括参数但
   assert.doesNotMatch(result.brief, /整体评估值|合计评估值|亿元|14\.63|4\.75/);
 });
 
+const recentReplyValuations = [
+  {
+    name: '华夏华润置地REIT', page: 129,
+    text: '南通万象城项目估值较首次申报的人民币38.50亿元调整为37.62亿元；临沂万象汇项目估值较首次申报的人民币15.50亿元调整为15.25亿元。不动产项目合计估值由首次申报的54.00亿元调整为52.87亿元，下调1.13亿元，较首次申报下调2.09%。',
+    expected: /54\.00亿元.*52\.87亿元.*1\.13亿元.*2\.09%/,
+  },
+  {
+    name: '红土创新星河集团REIT', page: 94,
+    text: '本次反馈答复对估值模型中出租率、市场租金单价、预测期内市场租金增长率、长期增长率、收缴率、折现率等关键假设及评估基准日进行了调整，估值由22.35亿元下降2.15亿元（-9.62%）至20.20亿元，估值结果及估值参数详细调整情况如下：表24评估参数调整情况 估值结果22.35亿元20.20亿元 有效免租期5天/年9天/年',
+    expected: /22\.35亿元.*2\.15亿元.*-9\.62%.*20\.20亿元/,
+  },
+];
+
+for (const sample of recentReplyValuations) {
+  void test(`${sample.name}原文估值变化在正常生成、保底及精简材料中均保留`, () => {
+    const source = { ...record, shortName: sample.name, files: [{ ...record.files[0], content: `[第${sample.page}页] 答复：${sample.text}\n[第200页] ${other}。` }] };
+    const result = buildReplyFallback(source);
+    assert.ok(result);
+    assert.match(result.brief, sample.expected);
+    assert.doesNotMatch(result.brief, /如下|表24|有效免租期/);
+    const fact = result.evidence.find(item => sample.expected.test(item.claim));
+    assert.ok(fact);
+    assert.equal(fact.page, sample.page);
+    assert.ok(sample.text.normalize('NFKC').replace(/\s/g, '').includes(fact.quote));
+    assert.throws(() => validateBrief(result.brief.replace(fact.claim, ''), source, result.evidence), /missing_reply_valuation/);
+    assert.throws(() => validateBrief(result.brief, source, result.evidence.filter(item => item !== fact)), /missing_reply_valuation/);
+    const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(source)}。${other}。`, evidence: [{ claim: other, fileIndex: 1, quote: `${other}。` }] }), source);
+    assert.match(parsed.brief, sample.expected);
+    const long = source.files[0].content.replace(`[第${sample.page}页]`, `[第1页] ${'普通分析。'.repeat(5000)}\n[第${sample.page}页]`);
+    const selected = selectRelevantText(long, '回复反馈', 9000);
+    const compact = selectRelevantText(selected, '回复反馈', 4500);
+    for (const content of [selected, compact]) {
+      const fallback = buildReplyFallback({ ...source, files: [{ ...source.files[0], content }] });
+      assert.ok(fallback);
+      assert.match(fallback.brief, sample.expected);
+    }
+    assert.equal(needsBriefRegeneration({ ...source, brief: result.brief, briefRulesVersion: '2026-10-16-reply-v3' }, source), true);
+  });
+}
+
+void test('合计估值下调额、下调比例及句中降幅矛盾时拒绝生成', () => {
+  for (const text of [
+    recentReplyValuations[0].text.replace('下调1.13亿元', '下调2.13亿元'),
+    recentReplyValuations[0].text.replace('下调2.09%', '下调4.09%'),
+    recentReplyValuations[1].text.replace('下降2.15亿元', '下降3.15亿元'),
+    recentReplyValuations[1].text.replace('-9.62%', '-4.62%'),
+    recentReplyValuations[1].text.replace('下降2.15亿元', '上升2.15亿元'),
+  ]) {
+    assert.throws(() => buildReplyFallback({ ...record, files: [{ ...record.files[0], content: `[第94页] 答复：${text}` }] }), /conflicting_reply_valuation/);
+  }
+});
+
+void test('整体评估价值上调兼容万元口径，但不将单项资产估值冒称整体', () => {
+  const make = (text: string) => ({ ...record, files: [{ ...record.files[0], content: `[第9页] 答复：${text}` }] });
+  const result = buildReplyFallback(make('本项目评估价值由10,000万元上调1,000万元（+10.00%）至11,000万元。'));
+  assert.ok(result);
+  assert.match(result.brief, /10,000万元上调1,000万元\(\+10\.00%\)至11,000万元/);
+  assert.equal(buildReplyFallback(make('南通万象城项目估值由38.50亿元调整为37.62亿元；临沂万象汇项目估值由15.50亿元调整为15.25亿元。')), null);
+});
+
 void test('回复材料截取保留中部整体估值、参数变化和真实答复，不保留原函要求', () => {
   const long = shoukai.files[0].content.replace('[第173页]', `[第90页] ${'普通分析。'.repeat(5000)}\n[第173页]`);
   const selected = selectRelevantText(long, '回复反馈', 9000);

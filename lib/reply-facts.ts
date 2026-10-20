@@ -41,27 +41,31 @@ export function replyValuationFacts(files: SourceFile[]): Fact[] {
   const valuations: Fact[] = [];
   const terms = new Set<string>();
   for (const part of pages) {
-    const pattern = /(?:不动产项目|项目|[一二三四五六七八九十\d]+个项目)?(?:整体|合计)(?:的)?评估值[^。；]{0,30}?(?:由|从)(?:首次申报(?:时点|时)?|申报时点)?的?([\d,.]+)(亿|万)元(?:调整为|下降至|降至|上升至|升至|增至)([\d,.]+)(亿|万)元([^。；]*)/g;
+    const pattern = /(?:(?:不动产项目|项目|[一二三四五六七八九十\d]+个项目)?(?:整体|合计)(?:的)?(?:评估值|估值|评估价值)|(?:不动产项目|本项目)(?:的)?(?:评估值|估值|评估价值)|(?<=^|[。；，：,;:])(?:评估值|估值|评估价值))[^。；;]{0,30}?(?:由|从)(?:首次申报(?:时点|时)?|申报时点)?的?([\d,.]+)(亿|万)元(调整为|下降至|降至|下调至|上升至|升至|增至|上调至|(?:下降|下调|减少|增加|上调|上升)[\d,.]+(?:亿|万)元(?:\([+-]?\d+(?:\.\d+)?%\))?(?:至|为))([\d,.]+)(亿|万)元([^。；;]*)/g;
     for (const match of part.text.matchAll(pattern)) {
+      const tail = match[6].split(/[,，][^,，。；;:]{0,30}(?:如下|下表|详见)|[：:]/)[0];
       const before = Number(match[1].replace(/,/g, '')) * (match[2] === '亿' ? 1e8 : 1e4);
-      const after = Number(match[3].replace(/,/g, '')) * (match[4] === '亿' ? 1e8 : 1e4);
+      const after = Number(match[4].replace(/,/g, '')) * (match[5] === '亿' ? 1e8 : 1e4);
       if (!before || !after || before === after) continue;
+      if (/(?:下降|下调|减少|降至)/.test(match[3]) && after > before || /(?:上升|上调|增加|升至|增至)/.test(match[3]) && after < before)
+        throw new Error('conflicting_reply_valuation');
       const beforeRounding = 0.5 * 10 ** -(match[1].split('.')[1]?.length || 0) * (match[2] === '亿' ? 1e8 : 1e4);
-      const afterRounding = 0.5 * 10 ** -(match[3].split('.')[1]?.length || 0) * (match[4] === '亿' ? 1e8 : 1e4);
-      const ratio = match[5].match(/(降幅|增幅|涨幅|调整幅度|变动比例|变动幅度|(?:整体)?估值(?:下降|上升))(?:为|约为|约)?(-?\d+(?:\.\d+)?)%/);
+      const afterRounding = 0.5 * 10 ** -(match[4].split('.')[1]?.length || 0) * (match[5] === '亿' ? 1e8 : 1e4);
+      const ratio = tail.match(/(降幅|增幅|涨幅|调整幅度|变动比例|变动幅度|下调|上调|(?:整体)?估值(?:下降|上升))(?:为|约为|约)?([+-]?\d+(?:\.\d+)?)%/) ||
+        match[3].match(/(\()([+-]?\d+(?:\.\d+)?)%\)/);
       if (ratio) {
         const expected = (after - before) / before * 100;
         const actual = Number(ratio[2]);
-        const signed = /调整|变动/.test(ratio[1]);
+        const signed = /调整|变动|\(/.test(ratio[1]);
         const precision = ratio[2].split('.')[1]?.length || 0;
         const signedActual = signed || expected > 0 ? actual : -actual;
         const lower = ((after - afterRounding) / (before + beforeRounding) - 1) * 100;
         const upper = ((after + afterRounding) / (before - beforeRounding) - 1) * 100;
         if (signedActual < lower - 0.5 * 10 ** -precision || signedActual > upper + 0.5 * 10 ** -precision ||
-          /降幅|下降/.test(ratio[1]) && after > before || /增幅|涨幅|上升/.test(ratio[1]) && after < before)
+          /降幅|下降|下调/.test(ratio[1]) && after > before || /增幅|涨幅|上升|上调/.test(ratio[1]) && after < before)
           throw new Error('conflicting_reply_valuation');
       }
-      const delta = match[5].match(/(?:下降|减少|增加|上升)([\d,.]+)(亿|万)元/);
+      const delta = `${match[3]}${tail}`.match(/(?:下降|下调|减少|增加|上调|上升)([\d,.]+)(亿|万)元/);
       if (delta) {
         const unit = delta[2] === '亿' ? 1e8 : 1e4;
         const rounding = 0.5 * 10 ** -(delta[1].split('.')[1]?.length || 0) * unit;
@@ -71,8 +75,8 @@ export function replyValuationFacts(files: SourceFile[]): Fact[] {
       terms.add(`${before}:${after}`);
       if (terms.size > 1) throw new Error('conflicting_reply_valuation');
       if (valuations.length) continue;
-      const quote = match[0];
-      const claim = `${/^(?:不动产项目|项目|[一二三四五六七八九十\d]+个项目)/.test(quote) ? '' : '不动产项目'}${quote.replace(/(?<!\d),|,(?!\d)/g, '，')}`;
+      const quote = match[0].slice(0, match[0].length - match[6].length) + tail;
+      const claim = `${/^(?:不动产项目|本项目|项目|[一二三四五六七八九十\d]+个项目)/.test(quote) ? '' : '不动产项目'}${quote.replace(/(?<!\d),|,(?!\d)/g, '，')}`;
       valuations.push({ claim, evidence: [{ fileUrl: part.fileUrl, page: part.page, quote, claim }] });
     }
   }
