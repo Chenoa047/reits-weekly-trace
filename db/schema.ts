@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -51,3 +51,20 @@ export const weeklyArchives = sqliteTable('weekly_archives', {
   archivedAt: text('archived_at').notNull(),
   snapshotJson: text('snapshot_json').notNull(),
 });
+
+export const blackboardThreads = sqliteTable('blackboard_threads', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull().unique(),
+  nickname: text('nickname').notNull(),
+  email: text('email').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const blackboardMessages = sqliteTable('blackboard_messages', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id').notNull().references(() => blackboardThreads.id),
+  author: text('author', { enum: ['visitor', 'chen'] }).notNull(),
+  body: text('body').notNull(),
+  createdAt: text('created_at').notNull(),
+}, table => [index('blackboard_messages_thread_created').on(table.threadId, table.createdAt)]);
