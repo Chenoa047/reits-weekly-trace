@@ -35,7 +35,7 @@ export function prospectusAssetFacts(files: SourceFile[], offeringType?: string)
     // Use one table row, so repeated disclosure in the next row is not another project's scale.
     const constructionRow = table.match(/建设内容(?:和|及)规模([\s\S]+?)(?=建筑面积和可供|建筑面积及可供|$)/)?.[1];
     const scaleText = constructionRow || table;
-    const scales = [...scaleText.matchAll(/(土地使用权面积|占地面积|总建筑面积|建筑总面积|(?<!登记|产权|人防)建筑面积|(?:发电)?总?装机容量)(?:为|:|：|约)?([\d,]+(?:\.\d+)?)(平方米|万平方米|MW|兆瓦|万千瓦|千瓦)/g)]
+    const scales = [...scaleText.matchAll(/(土地使用权面积|占地面积|总建筑面积|建筑总面积|(?<!登记|产权|人防|商业|文娱用房|车位)建筑面积|(?:发电)?总?装机容量)(?:合计|总计)?(?:为|:|：|约)?([\d,]+(?:\.\d+)?)(平方米|万平方米|MW|兆瓦|万千瓦|千瓦)/g)]
       .map(match => ({ page: nearby.find(page => page.text.includes(match[0]))!.page, quote: match[0], metric: match[1].includes('装机') ? '装机容量' : match[1], value: Number(match[2].replace(/,/g, '')), unit: match[3] }));
     // A construction row may disclose capacity as unit count × capacity rather than a labelled total.
     const construction = nearby.map(page => ({ page: page.page, text: page.text.match(/建设内容(?:和|及)规模(.+?)(?:决算总投资|建筑面积|开竣工|$)/)?.[1] || '' }))

@@ -30,7 +30,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v7';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v8';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-16-reply-v3';
@@ -233,7 +233,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 3. 正文使用项目简称，不重复基金全称；不写“项目申报类型为首次发售”“资产类型为基础设施”“交易所项目动态信息显示”“项目发起人即”等机械字段，不写基金管理人、专项计划名称或与本次事件无关的流程回顾。
 4. 每个事实只能来自下方“允许使用的原文件摘录”。项目动态页只可确认本次进度、交易所、日期；仅“申报”阶段还可使用项目动态页披露的原始权益人。不得依据文件名推断正文，不得使用外部知识，不得补齐材料中没有的信息。
 5. 第一事实句之后的每个完整句子都必须提供证据。evidence.claim必须逐字复制该完整句子（可不含末尾句号），不能只截取句中一小段；evidence.quote必须逐字复制同一页原文件中的连续原文。一个句子引用多个文件时，为同一claim分别提供多条证据。
-6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。反馈/问询的资产规模可依据同一招募说明书中明确属于本次资产的同口径数据换算为万平方米或万千瓦，合计必须引用所有分项；不得将一期规模写成全项目规模，不得混用土地使用权面积、占地面积、建筑面积或登记建筑面积。
+6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。反馈/问询的资产规模可依据同一招募说明书中明确属于本次资产的同口径数据换算为万平方米或万千瓦，合计必须引用所有分项；不得将一期规模写成全项目规模，不得混用土地使用权面积、占地面积、建筑面积或登记建筑面积。“建筑面积合计”“总建筑面积合计为”等均属规模披露。原文已明确整体合计时引用该总量，不再将总量和分项重复相加；商业、文娱用房、车位等分项建筑面积不能替代或冒称整个项目建筑面积。
 7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
 8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。交易所显示“已反馈/已问询”不能单独区分这两个阶段，应按最新轮次的文件方向判断。答复PDF中复述的原问题、请管理人补充披露等要求不能充当已经作答的证据，应引用“答复/回复”之后的实际说明。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。已明确披露的整体估值调整必须保留；不得将所有参数一概称为下调。文件没有变化数据时不得硬写估值变化。
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。先依据本次扩募概况或拟购入范围确认资产名单，不混入已持有、首发或历史扩募资产。项目概况表的“资产所在地”和“项目所在地”均可证明位置；跨页续表要联读。“项目一、项目二”等列头代表不同项目，须逐项对应名称、位置和同口径规模；同一项目在建设内容、建筑面积、可出租面积等行重复披露的数字不得重复累计。多个项目可以分别介绍，或同口径合计并为每个分项引用原页证据；不得只取第一列、只引用一个分项或把资料提取失败当成未披露。
@@ -750,7 +750,7 @@ function isQuoteInOtherFeedbackSection(content: string, quote: string) {
 }
 
 function isAssetIntroductionSentence(value: string) {
-  return /原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|可供出租面积|占地面积|土地使用权面积|装机容量|发电功率/.test(
+  return /原始权益人|底层资产|基础设施项目|不动产项目|项目位于|建筑面积|建筑总面积|可供出租面积|占地面积|土地使用权面积|装机容量|发电功率/.test(
     value,
   );
 }
@@ -761,12 +761,12 @@ function isAssetBackgroundSentence(value: string) {
 
 function supportsFeedbackAssetScale(sentence: string, quotes: string, unsupported: string[]) {
   const normalized = sentence.normalize('NFKC').replace(/[,\s]/g, '');
-  const targets = [...normalized.matchAll(/(土地使用权面积|占地面积|登记建筑面积|总建筑面积|建筑总面积|建筑面积|装机容量|发电功率)(合计)?(?:为|约为|约)?(\d+(?:\.\d+)?)万(平方米|千瓦)/g)];
+  const targets = [...normalized.matchAll(/(土地使用权面积|占地面积|登记建筑面积|总建筑面积|建筑总面积|商业建筑面积|文娱用房建筑面积|车位建筑面积|建筑面积|装机容量|发电功率)(合计)?(?:为|约为|约)?(\d+(?:\.\d+)?)万(平方米|千瓦)/g)];
   if (!targets.length) return !unsupported.length;
   if (unsupported.some(number => !targets.some(target => target[3] === number))) return false;
   return targets.every(target => {
     const metric = /总建筑面积|建筑总面积/.test(target[1]) ? '(?:总建筑面积|建筑总面积)' : target[1];
-    const sources = [...quotes.matchAll(new RegExp(`${target[1] === '建筑面积' ? '(?<!登记)' : ''}${metric}(?:为|：|:)?(\\d+(?:\\.\\d+)?)(万平方米|平方米|万千瓦|千瓦|兆瓦|MW)`, 'g'))];
+    const sources = [...quotes.matchAll(new RegExp(`${target[1] === '建筑面积' ? '(?<!登记|产权|人防|商业|文娱用房|车位)' : ''}${metric}(?:合计|总计)?(?:为|：|:)?(\\d+(?:\\.\\d+)?)(万平方米|平方米|万千瓦|千瓦|兆瓦|MW)`, 'g'))];
     if (!sources.length) return false;
     const values = sources.flatMap(source => {
       const area = source[2].includes('平方米');

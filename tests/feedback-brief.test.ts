@@ -58,7 +58,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v7');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v8');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -407,9 +407,10 @@ void test('资产摘录优先保留完整跨页表和扩募范围，精简后仍
   assert.ok(selected.length <= 9000);
 });
 
-void test('旧版反馈完整稿和仅进度稿都会按v7重新生成', () => {
+void test('旧版反馈完整稿和仅进度稿都会按当前规则重新生成', () => {
   const incoming = { ...expansionRecord, brief: `${canonicalBriefOpening(expansionRecord)}。反馈意见主要围绕合规情况展开。` };
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-14-feedback-v6' }, incoming), true);
+  assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v7' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, brief: `${canonicalBriefOpening(incoming)}。`, briefRulesVersion: briefRulesVersionFor('反馈/问询') }, incoming), true);
   assert.equal(briefRulesVersionFor('认购结果'), '2026-10-16-subscription-v2');
 });
@@ -426,6 +427,91 @@ void test('模型服务失败或返回无效正文时，扩募仍能生成包含
       assert.match(result.brief, /璟耀项目、璟博项目/);
       assert.match(result.brief, /20\\.77万平方米/);
       assert.equal(result.evidence.filter(item => item.claim.includes('建筑面积')).length, 2);
+    }
+  `;
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], {
+    env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, NODE_ENV: 'test', DEEPSEEK_API_KEY: 'test-placeholder' }, encoding: 'utf8',
+  });
+  assert.equal(child.status, 0, child.stderr);
+});
+
+// Real prospectus table, physical page 49 (printed page 48).
+const pengruiRecord = {
+  ...record, exchange: '深交所', shortName: '国泰海通鹏瑞利REIT', updateDate: '2026-10-19',
+  files: [
+    { ...record.files[0], kind: '问询函', content: '[第1页] 一、关于合规情况。请补充说明。' },
+    { ...record.files[1], originalTitle: '国泰海通鹏瑞利封闭式商业不动产证券投资基金招募说明书（草案）', content:
+      '[第49页] 表：不动产项目概况 不动产项目名称 鹏瑞利青羊项目，包括青羊广场项目和地下通道商业项目 不动产项目业态 商业不动产-商业零售 项目所在地 青羊广场项目：四川省成都市青羊区光华北三路55号 地下通道商业项目：四川省成都市青羊区光华东三路483号地下室光华新区地下人行通道 资产范围 青羊广场项目及地下通道商业项目。建设内容和规模 建筑面积合计121,719.21平方米，总投资合计82,842.18万元。其中：青羊广场项目：建筑面积合计为121,539.43平方米；地下通道商业项目：建筑面积合计为179.78平方米。建筑面积和可供出租面积 总建筑面积合计为121,719.21平方米，其中商业建筑面积为51,942.64平方米，文娱用房建筑面积为29,588.17平方米，车位建筑面积为40,188.40平方米。截至2026年3月31日，可供出租面积为55,509.45平方米。开竣工时间以及投入运营时间。',
+    },
+  ],
+};
+
+void test('鹏瑞利合计句式必须保留整体建筑面积，不能用商业部分或把总计分项重复累计', () => {
+  const result = buildExchangeQuestionFallback(pengruiRecord)!;
+  assert.match(result.brief, /青羊广场项目和地下通道商业项目/);
+  assert.match(result.brief, /建筑面积约12\.17万平方米/);
+  assert.doesNotMatch(result.brief, /5\.19万平方米|24\.34万平方米/);
+  const scale = result.evidence.filter(item => item.claim.includes('建筑面积'));
+  assert.equal(scale.length, 1);
+  assert.equal(scale[0].page, 49);
+  assert.equal(scale[0].quote, '建筑面积合计121,719.21平方米');
+  const parsed = parseBriefResponse(JSON.stringify({ brief: result.brief, evidence: result.evidence.map(item => ({ claim: item.claim, fileIndex: pengruiRecord.files.findIndex(file => file.url === item.fileUrl) + 1, quote: item.quote })) }), pengruiRecord);
+  assert.equal(parsed.brief, result.brief);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, pengruiRecord, parsed.evidence));
+});
+
+void test('面积合计、合计为、总计为和总建筑面积合计为均能提取和引用', () => {
+  for (const label of ['建筑面积合计', '建筑面积合计为', '建筑面积总计为', '总建筑面积合计为', '建筑总面积合计为']) {
+    const incoming = { ...pengruiRecord, files: pengruiRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: file.content.replace('建筑面积合计121,719.21', `${label}121,719.21`) } : file) };
+    const result = buildExchangeQuestionFallback(incoming)!;
+    assert.match(result.brief, /(?:建筑面积|总建筑面积|建筑总面积)约12\.17万平方米/);
+    assert.ok(result.evidence.some(item => item.quote === `${label}121,719.21平方米`));
+  }
+});
+
+void test('只有正文的总建筑面积合计为也能支持单位换算，不依赖表格补齐', () => {
+  const claim = '底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，总建筑面积约12.17万平方米';
+  const quote = '底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，总建筑面积合计为121,719.21平方米';
+  const incoming = { ...pengruiRecord, files: [pengruiRecord.files[0], { ...pengruiRecord.files[1], content: `[第49页] ${quote}。` }] };
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${claim}。`, evidence: [{ claim, fileIndex: 2, quote }] }), incoming);
+  assert.match(parsed.brief, /12\.17万平方米/);
+});
+
+void test('商业、文娱用房和车位的分项面积不能当成项目建筑总面积', () => {
+  const claim = '底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，建筑面积约5.19万平方米';
+  for (const part of ['商业', '文娱用房', '车位']) {
+    const quote = `底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，其中${part}建筑面积为51,942.64平方米`;
+    const incoming = { ...pengruiRecord, files: [pengruiRecord.files[0], { ...pengruiRecord.files[1], content: `[第49页] ${quote}。` }] };
+    const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${claim}。`, evidence: [{ claim, fileIndex: 2, quote }] }), incoming);
+    assert.doesNotMatch(parsed.brief, /5\.19万平方米/);
+  }
+});
+
+void test('无建设内容行时也优先选整体面积，不能取商业建筑面积作为项目规模', () => {
+  const content = pengruiRecord.files[1].content.replace(/建设内容和规模[\s\S]*?建筑面积和可供出租面积/, '建筑面积和可供出租面积');
+  const facts = prospectusAssetFacts([{ ...pengruiRecord.files[1], content }]);
+  assert.match(facts.at(-1)!.claim, /总建筑面积约12\.17万平方米/);
+});
+
+void test('明确标注商业建筑面积的真实分项表述仍可引用，不与整体建筑面积混淆', () => {
+  const claim = '底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，商业建筑面积约5.19万平方米';
+  const quote = '底层资产为位于成都市青羊区的青羊广场项目和地下通道商业项目，其中商业建筑面积为51,942.64平方米';
+  const incoming = { ...pengruiRecord, files: [pengruiRecord.files[0], { ...pengruiRecord.files[1], content: `[第49页] ${quote}。` }] };
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(incoming)}。${claim}。`, evidence: [{ claim, fileIndex: 2, quote }] }), incoming);
+  assert.match(parsed.brief, /商业建筑面积约5\.19万平方米/);
+});
+
+void test('鹏瑞利遇到模型不可用或只返回进度时仍从原文生成整体面积', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    import { generateDeepSeekBrief, canonicalBriefOpening } from ${JSON.stringify(new URL('../lib/deepseek.ts', import.meta.url).href)};
+    const record = ${JSON.stringify(pengruiRecord)};
+    for (const response of [() => new Response(null, { status: 503 }), () => Response.json({ output_text: JSON.stringify({ brief: canonicalBriefOpening(record) + '。', evidence: [] }) })]) {
+      globalThis.fetch = async () => response();
+      const result = await generateDeepSeekBrief(record);
+      assert.match(result.brief, /建筑面积约12\\.17万平方米/);
+      assert.doesNotMatch(result.brief, /5\\.19万平方米/);
+      assert.ok(result.evidence.some(item => item.page === 49 && item.quote === '建筑面积合计121,719.21平方米'));
     }
   `;
   const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], {
