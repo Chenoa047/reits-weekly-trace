@@ -2,6 +2,7 @@ import type { ReitsSourceFile } from '@/lib/reits-rules';
 import { describeFetchError } from './fetch-error.ts';
 import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
 import { replyAnswerText, replyValuationFacts } from './reply-facts.ts';
+import { prospectusAssetFacts } from './prospectus-assets.ts';
 
 const MAX_PAGES = 600;
 const MAX_TOTAL_EXCERPT_CHARS = 45_000;
@@ -169,6 +170,16 @@ export function selectRelevantText(text: string, stage: string, limit: number) {
     上市: ['上市日期', '交易代码', '基金份额', '募集规模', '认购价格'],
   };
   const windows: string[] = [];
+  if (stage === '反馈资产') {
+    const expansion = /本基金本次扩募/.test(text.replace(/\s/g, ''));
+    const facts = prospectusAssetFacts([{ kind: '招募说明书', url: '', originalTitle: expansion ? '扩募招募说明书' : '招募说明书', content: text }]);
+    // Keep the scope and complete table pages before generic keyword windows.
+    windows.push(...text.split(/(?=\[第\d+页\])/).filter(part => {
+      const page = Number(part.match(/^\[第(\d+)页\]/)?.[1]);
+      const normalized = part.normalize('NFKC').replace(/\s/g, '');
+      return /本基金本次扩募(?:发售)?概况/.test(normalized) || facts.some(fact => fact.evidence.some(item => item.page === page && normalized.includes(item.quote)));
+    }));
+  }
   for (const keyword of keywords[stage] || []) {
     let from = 0;
     for (let count = 0; count < (stage === '询价资产' || stage === '反馈资产' || stage === '发售资产' ? 1 : 12); count += 1) {

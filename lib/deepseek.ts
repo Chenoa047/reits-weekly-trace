@@ -30,7 +30,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-14-feedback-v6';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v7';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-16-reply-v3';
@@ -236,7 +236,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 6. 不同文件的数据冲突时写明“披露文件数据存在差异，待核验”，不得自行选择、拼接或修正。金额、比例、面积、数量、日期、期限、代码等数字必须由原文直接支持；计算值仅在同一允许使用的原文件中有同次发行、口径一致且可逐项核验的基础数字时才能写，并为计算句分别引用所用数字的原文。反馈/问询的资产规模可依据同一招募说明书中明确属于本次资产的同口径数据换算为万平方米或万千瓦，合计必须引用所有分项；不得将一期规模写成全项目规模，不得混用土地使用权面积、占地面积、建筑面积或登记建筑面积。
 7. 申报且无附件时只写状态及项目动态页披露的原始权益人，不写底层资产、估值或发行安排，不反复说明“尚未披露”。材料不足时允许只写一句。
 8. 严格区分文件方向：反馈/问询的核心依据只能是交易所发给原始权益人或申报方的反馈意见/审核问询函；回复反馈的全部扩展事实只能来自原始权益人或申报方提交给交易所的答复/回复PDF，严禁把交易所原函当作回复内容。交易所显示“已反馈/已问询”不能单独区分这两个阶段，应按最新轮次的文件方向判断。答复PDF中复述的原问题、请管理人补充披露等要求不能充当已经作答的证据，应引用“答复/回复”之后的实际说明。反馈/问询只概括监管关注的大类主题，不逐项罗列问题；回复反馈先概括回复文件披露的估值参数调整类别，再写整体评估值相对申报时点的金额和比例变化，最后概括其他回复事项。已明确披露的整体估值调整必须保留；不得将所有参数一概称为下调。文件没有变化数据时不得硬写估值变化。
-9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。
+9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。先依据本次扩募概况或拟购入范围确认资产名单，不混入已持有、首发或历史扩募资产。项目概况表的“资产所在地”和“项目所在地”均可证明位置；跨页续表要联读。“项目一、项目二”等列头代表不同项目，须逐项对应名称、位置和同口径规模；同一项目在建设内容、建筑面积、可出租面积等行重复披露的数字不得重复累计。多个项目可以分别介绍，或同口径合计并为每个分项引用原页证据；不得只取第一列、只引用一个分项或把资料提取失败当成未披露。
 10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
 本条阶段规则：${stageInstruction(record)}${round ? `\n本次为${round}${record.progressType === '回复反馈' ? '回复' : '反馈/问询'}，首句必须明确轮次，只概括本轮原文件，不沿用此前轮次的事实。` : ''}${
@@ -418,7 +418,7 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
         supportsDerivedInquiryScale(sentence, quotes, unsupported))
     );
   });
-  const orderedSentences = orderDetailSentences(
+  let orderedSentences = orderDetailSentences(
     safeSentences,
     record.progressType,
   );
@@ -433,10 +433,17 @@ export function parseBriefResponse(raw: string, record: BriefMaterial) {
   if (record.progressType === '认购结果') {
     const facts = subscriptionResultFacts(record.files);
     const assets = orderedSentences.filter(isAssetIntroductionSentence);
-    const table = prospectusAssetFacts(record.files);
+    const table = prospectusAssetFacts(record.files, record.offeringType);
     const assetFacts = table.length ? table : assets.map(claim => ({ claim, evidence: candidateEvidence.filter(item => item.claim === claim) }));
     const all = [...facts, ...assetFacts];
     return { brief: `${canonicalBriefOpening(record)}。${all.map(fact => fact.claim).join('。')}${all.length ? '。' : ''}`, evidence: all.flatMap(fact => fact.evidence) };
+  }
+  if (record.progressType === '反馈/问询') {
+    const facts = prospectusAssetFacts(record.files, record.offeringType);
+    if (facts.length && (record.offeringType === '扩募' || !orderedSentences.some(sentence => isAssetIntroductionSentence(sentence) && !isFeedbackMainSummary(sentence) && !isOtherFeedbackClaim(sentence)))) {
+      orderedSentences = [...orderedSentences.filter(sentence => !isAssetIntroductionSentence(sentence) || isFeedbackMainSummary(sentence) || isOtherFeedbackClaim(sentence)), ...facts.map(fact => fact.claim)];
+      candidateEvidence.push(...facts.flatMap(fact => fact.evidence));
+    }
   }
   const opening = canonicalBriefOpening(record);
   const maximum = briefMaximumLength(record.progressType);
@@ -528,7 +535,7 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
     .filter((item) => item.kind === '招募说明书' && item.content)
     .sort((left, right) => (right.publishedAt || '').localeCompare(left.publishedAt || ''))[0];
   if (prospectus?.content) {
-    const table = prospectusAssetFacts([prospectus]);
+    const table = prospectusAssetFacts([prospectus], record.offeringType);
     const located = findProspectusFact(prospectus.content, /本基金(?:拟)?持有的不动产项目为([^。]{2,200})。/);
     if (table.length) {
       details.push(...table.map(fact => fact.claim));
@@ -566,7 +573,7 @@ export function buildExchangeQuestionFallback(record: BriefMaterial) {
 
 export function buildSubscriptionResultFallback(record: BriefMaterial) {
   if (record.progressType !== '认购结果') return null;
-  const facts = [...subscriptionResultFacts(record.files), ...prospectusAssetFacts(record.files)];
+  const facts = [...subscriptionResultFacts(record.files), ...prospectusAssetFacts(record.files, record.offeringType)];
   if (!facts.length) return null;
   const brief = `${canonicalBriefOpening(record)}。${facts.map(fact => fact.claim).join('。')}。`;
   const evidence = facts.flatMap(fact => fact.evidence);
@@ -999,13 +1006,16 @@ export function validateBrief(
         item.quote.normalize('NFKC').replace(/\s/g, '').includes(topic.quote.normalize('NFKC').replace(/\s/g, ''))))))
       throw new Error('missing_feedback_topics');
     validateAssetCompleteness(value, record, 'missing_feedback_asset');
+    if (record.offeringType === '扩募' && prospectusAssetFacts(record.files, record.offeringType).some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
+      !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
+      throw new Error('missing_feedback_asset');
   }
   if (record.progressType === '认购结果') {
     const facts = subscriptionResultFacts(record.files);
     if (!facts.length || facts.some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
       !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
       throw new Error('missing_subscription_fields');
-    if (prospectusAssetFacts(record.files).some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
+    if (prospectusAssetFacts(record.files, record.offeringType).some(fact => !value.includes(fact.claim) || (evidence !== undefined && fact.evidence.some(expected =>
       !evidence.some(item => item.fileUrl === expected.fileUrl && item.page === expected.page && item.claim === expected.claim && item.quote === expected.quote)))))
       throw new Error('missing_subscription_asset');
     validateAssetCompleteness(value, record, 'missing_subscription_asset');
@@ -1044,7 +1054,7 @@ function validateAssetCompleteness(value: string, record: BriefMaterial, error: 
   if (/的(?:购物中心类商业不动产|购物中心项目|商业不动产|基础设施项目)(?:[，。]|$)/.test(assets)) throw new Error(error);
   if (/不动产项目名称|(?:底层资产|持有的不动产项目).{0,100}(?:位于|坐落于)/.test(source) &&
     !value.split('。').some(sentence => /底层资产/.test(sentence) && /位于|坐落于/.test(sentence))) throw new Error(error);
-  const tableScales = prospectusAssetFacts(record.files).slice(1);
+  const tableScales = prospectusAssetFacts(record.files, record.offeringType).slice(1);
   const metrics = /水电|水力发电|水利发电|电站|电厂|风电场|光伏/.test(assets) || tableScales.some(fact => fact.claim.includes('装机容量'))
     ? ['装机容量', '发电功率']
     : ['土地使用权面积', '占地面积', '总建筑面积', '建筑总面积', '建筑面积', '登记建筑面积', '装机容量'];

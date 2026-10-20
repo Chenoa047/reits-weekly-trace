@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
+import { prospectusAssetFacts } from '../lib/prospectus-assets.ts';
+import { selectRelevantText } from '../lib/pdf-text.ts';
 import {
   BRIEF_RULES_VERSION,
   briefRulesVersionFor,
@@ -54,7 +58,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-14-feedback-v6');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v7');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -309,4 +313,123 @@ void test('华夏中海可选择建筑总面积，不强迫改成土地面积；
   const fallback = buildExchangeQuestionFallback(incoming);
   assert.ok(fallback);
   assert.match(fallback.brief, /千灯湖环宇城项目.*佛山市南海区/);
+});
+
+// Prospectus excerpts from the supplied PDF, physical pages 4, 30 and 31.
+// The exchange question below is a test fixture, not the actual feedback letter.
+const expansionProspectus = [
+  '[第4页] 本基金本次扩募发售概况如下：基金名称 汇添富上海地产租赁住房封闭式基础设施证券投资基金 不动产项目名称 璟耀项目、璟博项目 募集规模37.225亿元。',
+  '[第30页] 四、不动产项目概况 表1-2不动产项目概况表 项目 项目一 项目二 不动产项目名称 璟耀项目 璟博项目 不动产项目业态 租赁住房 租赁住房',
+  '[第31页] 项目 项目一 项目二 资产所在地 上海市浦东新区 上海市浦东新区 资产范围 上海市浦东新区济明路533弄1-8、10、15-19号，包括对应的房屋所有权及其占用范围内的国有建设用地使用权；上海市浦东新区东三里桥路185、189、193、195、199号等，包括房屋所有权及其占用范围内的国有建设用地使用权。建设内容和规模 主要建设内容为8幢高层住宅楼，土地面积38,223.20平方米，建筑面积147,637.72平方米；主要建设内容为新建租赁住房及相关配套设施，土地面积17,522.20平方米，建筑面积60,093.94平方米。建筑面积和可供出租或者经营使用面积（如有）建筑面积147,637.72平方米；可供出租面积147,637.72平方米；建筑面积60,093.94平方米；可供出租面积60,093.94平方米。开竣工时间以及投入运营时间。',
+].join('\n');
+const expansionRecord = {
+  ...record, shortName: '汇添富上海地产租赁住房REIT', offeringType: '扩募' as const, updateDate: '2026-10-19',
+  files: [
+    { ...record.files[0], content: '[第1页] 一、关于合规情况。请补充说明。' },
+    { ...record.files[1], originalTitle: '2026年度第一次扩募并新购入不动产项目招募说明书', content: expansionProspectus },
+  ],
+};
+
+function assertExpansionEvidence(result: NonNullable<ReturnType<typeof buildExchangeQuestionFallback>>, material = expansionRecord) {
+  for (const item of result.evidence) {
+    const file = material.files.find(file => file.url === item.fileUrl)!;
+    const pages = file.content.split(/(?=\[第\d+页\])/).filter(page => page.startsWith(`[第${item.page}页]`));
+    assert.ok(pages.some(page => page.normalize('NFKC').replace(/\s/g, '').includes(item.quote.normalize('NFKC').replace(/\s/g, ''))), item.quote);
+    assert.ok(result.brief.includes(item.claim));
+  }
+}
+
+void test('扩募跨页双项目表兼容资产所在地，按两项目同口径面积合计并保留原页证据', () => {
+  for (const locationLabel of ['资产所在地', '项目所在地']) {
+    const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => ({ ...file, content: file.content.replace('资产所在地', locationLabel) })) };
+    const result = buildExchangeQuestionFallback(incoming)!;
+    assert.ok(result);
+    assert.match(result.brief, /扩募项目获上交所反馈意见/);
+    assert.match(result.brief, /底层资产为璟耀项目、璟博项目，均位于上海市浦东新区/);
+    assert.match(result.brief, /建筑面积合计约20\.77万平方米/);
+    assert.doesNotMatch(result.brief, /14\.76万平方米|29\.53万平方米/);
+    assertExpansionEvidence(result, incoming);
+    assert.deepEqual(result.evidence.filter(item => item.claim.includes('建筑面积')).map(item => item.page), [31, 31]);
+  }
+});
+
+void test('扩募资产选择以本次扩募概况为准，不混入前面的已持有资产表', () => {
+  const old = '[第2页] 已持有不动产项目概况 项目 项目一 不动产项目名称 旧项目 不动产项目业态 租赁住房 项目所在地 上海市闵行区 资产范围 旧资产 建筑面积999999平方米。\n';
+  const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: old + file.content } : file) };
+  const result = buildExchangeQuestionFallback(incoming)!;
+  assert.match(result.brief, /璟耀项目、璟博项目/);
+  assert.doesNotMatch(result.brief, /旧项目|闵行区|100万平方米/);
+  assertExpansionEvidence(result, incoming);
+});
+
+void test('双项目不能把一项建筑面积重复披露当成两个项目的面积', () => {
+  const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: file.content.replace('建筑面积60,093.94平方米', '未披露建筑面积') } : file) };
+  const facts = prospectusAssetFacts(incoming.files, incoming.offeringType);
+  assert.equal(facts.length, 1);
+  assert.throws(() => buildExchangeQuestionFallback(incoming), /missing_feedback_asset/);
+});
+
+void test('本次扩募有两个项目时不能只采用其中一个项目的表', () => {
+  const partial = '[第5页] 本次扩募拟购入项目 项目 项目一 不动产项目名称 璟耀项目 不动产项目业态 租赁住房 资产所在地 上海市浦东新区 资产范围 济明路533弄 建筑面积147637.72平方米。\n';
+  const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: file.content.replace('[第30页]', `${partial}[第30页]`) } : file) };
+  const result = buildExchangeQuestionFallback(incoming)!;
+  assert.match(result.brief, /璟耀项目、璟博项目/);
+  assert.match(result.brief, /20\.77万平方米/);
+  assertExpansionEvidence(result, incoming);
+});
+
+void test('两个项目面积恰好相同仍按两列累计，不按数值去重', () => {
+  const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => ({ ...file, content: file.content.replaceAll('60,093.94', '147,637.72') })) };
+  const result = buildExchangeQuestionFallback(incoming)!;
+  assert.match(result.brief, /建筑面积合计约29\.53万平方米/);
+  assertExpansionEvidence(result, incoming);
+});
+
+void test('模型遗漏扩募资产时确定性补齐，删除任一分项证据或改错合计时拒绝', () => {
+  const main = '反馈意见主要围绕合规情况等方面展开，要求进一步补充说明或充分披露';
+  const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(expansionRecord)}。${main}。`, evidence: [{ fileIndex: 1, claim: main, quote: '一、关于合规情况' }] }), expansionRecord);
+  assert.match(parsed.brief, /璟耀项目、璟博项目/);
+  assert.match(parsed.brief, /建筑面积合计约20\.77万平方米/);
+  assert.doesNotThrow(() => validateBrief(parsed.brief, expansionRecord, parsed.evidence));
+  assertExpansionEvidence(parsed);
+  const scale = parsed.evidence.find(item => item.quote.includes('60,093.94'))!;
+  assert.throws(() => validateBrief(parsed.brief, expansionRecord, parsed.evidence.filter(item => item !== scale)), /missing_feedback_asset/);
+  assert.throws(() => validateBrief(parsed.brief.replace('20.77', '14.76'), expansionRecord, parsed.evidence), /missing_feedback_asset/);
+});
+
+void test('资产摘录优先保留完整跨页表和扩募范围，精简后仍能生成完整稿', () => {
+  const text = `[第1页] ${'不相关的目录'.repeat(6000)}\n${expansionProspectus}`;
+  const selected = selectRelevantText(text, '反馈资产', 9000);
+  const incoming = { ...expansionRecord, files: expansionRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: selected } : file) };
+  const result = buildExchangeQuestionFallback(incoming)!;
+  assert.match(result.brief, /建筑面积合计约20\.77万平方米/);
+  assertExpansionEvidence(result, incoming);
+  assert.ok(selected.length <= 9000);
+});
+
+void test('旧版反馈完整稿和仅进度稿都会按v7重新生成', () => {
+  const incoming = { ...expansionRecord, brief: `${canonicalBriefOpening(expansionRecord)}。反馈意见主要围绕合规情况展开。` };
+  assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-14-feedback-v6' }, incoming), true);
+  assert.equal(needsBriefRegeneration({ ...incoming, brief: `${canonicalBriefOpening(incoming)}。`, briefRulesVersion: briefRulesVersionFor('反馈/问询') }, incoming), true);
+  assert.equal(briefRulesVersionFor('认购结果'), '2026-10-16-subscription-v2');
+});
+
+void test('模型服务失败或返回无效正文时，扩募仍能生成包含全部新增资产和分项证据的反馈稿', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    import { generateDeepSeekBrief } from ${JSON.stringify(new URL('../lib/deepseek.ts', import.meta.url).href)};
+    for (const response of [() => new Response(null, { status: 503 }), () => Response.json({ output_text: 'invalid JSON' })]) {
+      let calls = 0;
+      globalThis.fetch = async () => { calls++; return response(); };
+      const result = await generateDeepSeekBrief(${JSON.stringify(expansionRecord)});
+      assert.equal(calls, 2);
+      assert.match(result.brief, /璟耀项目、璟博项目/);
+      assert.match(result.brief, /20\\.77万平方米/);
+      assert.equal(result.evidence.filter(item => item.claim.includes('建筑面积')).length, 2);
+    }
+  `;
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], {
+    env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, NODE_ENV: 'test', DEEPSEEK_API_KEY: 'test-placeholder' }, encoding: 'utf8',
+  });
+  assert.equal(child.status, 0, child.stderr);
 });
