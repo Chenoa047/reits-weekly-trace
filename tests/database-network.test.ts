@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDbAdapter } from '../db/index.ts';
-import { checkDatabaseConnection, databaseFetch } from '../lib/database-network.ts';
+import { checkDatabaseConnection, databaseFetch, retryTransientDatabaseOperation } from '../lib/database-network.ts';
 
 void test('数据库预检仅重试可恢复的连接错误，第三次成功后继续', async (t) => {
   let attempts = 0;
@@ -41,4 +41,36 @@ void test('数据库 HTTP 请求设定超时并保留调用方的取消信号，
   assert.equal(mockFetch.mock.callCount(), 1);
   assert.equal(timeout.mock.calls[0].arguments[0], 15_000);
   assert.equal(mockFetch.mock.calls[0].arguments[1]?.signal?.aborted, true);
+});
+
+void test('预检之后的数据库只读查询暂时超时会重试，写入仍只执行一次', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const method of ['first', 'all'] as const) {
+    let calls = 0;
+    const execute = t.mock.fn(async () => {
+      calls++;
+      if (calls < 3) throw new Error('database timeout');
+      return { rows: [{ id: 'record' }] };
+    });
+    const db = createDbAdapter({ execute } as never);
+    const result = db.prepare('SELECT id FROM projects')[method]();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    t.mock.timers.tick(1000);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    t.mock.timers.tick(2000);
+    await result;
+    assert.equal(calls, 3);
+  }
+  const execute = t.mock.fn(async () => { throw new Error('database timeout'); });
+  const db = createDbAdapter({ execute } as never);
+  await assert.rejects(db.prepare('INSERT INTO projects (id) VALUES (?)').bind('record').run());
+  assert.equal(execute.mock.callCount(), 1);
+});
+
+void test('瞬时错误重试有三次上限，认证、表结构和未知错误不重试', async () => {
+  for (const [message, attempts] of [['database timeout', 3], ['HTTP 401 unauthorized', 1], ['no such table', 1], ['unknown error', 1]] as const) {
+    let calls = 0;
+    await assert.rejects(retryTransientDatabaseOperation(async () => { calls++; throw new Error(message); }, async () => {}));
+    assert.equal(calls, attempts);
+  }
 });

@@ -3,7 +3,7 @@ import { getDb, type AppDb } from '@/db';
 import { refreshWeek, todayChina } from '@/lib/reits';
 import { checkDatabaseConnection } from '@/lib/database-network';
 import { describeCnbDatabaseError } from '@/lib/refresh-error';
-import { failQueuedRefreshRun } from '@/lib/refresh-runs';
+import { failActiveRefreshRun } from '@/lib/refresh-runs';
 
 setDefaultResultOrder('ipv4first');
 
@@ -31,9 +31,9 @@ if (trigger === 'manual' && !runId) {
     console.error(message);
     if (db && runId) {
       try {
-        await failQueuedRefreshRun(db, runId, message);
+        await failActiveRefreshRun(db, runId, message);
       } catch {
-        console.error('CNB 未能把失败状态写回数据库。网站会在提交十五分钟后将本任务标记为启动确认超时。');
+        console.error('CNB 未能把失败状态写回数据库。网站下次查询时会按原状态回收：排队任务提交超过十五分钟、运行任务提交超过三小时后标记失败；此提示不代表程序仍在运行。');
       }
     }
     process.exitCode = 1;

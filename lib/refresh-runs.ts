@@ -1,4 +1,5 @@
 import type { AppDb } from '@/db';
+import { retryTransientDatabaseOperation } from './database-network.ts';
 
 export type RefreshTrigger = 'scheduled' | 'manual';
 export type RefreshRunStatus = 'queued' | 'running' | 'ok' | 'partial' | 'failed';
@@ -110,6 +111,21 @@ export async function failQueuedRefreshRun(db: AppDb, runId: string, message: st
   return true;
 }
 
+export async function failActiveRefreshRun(db: AppDb, runId: string, message: string) {
+  const finishedAt = new Date().toISOString();
+  const result = await retryTransientDatabaseOperation(() => db
+    .prepare("UPDATE fetch_runs SET status = 'failed', finished_at = ?, message = ? WHERE id = ? AND status IN ('queued', 'running')")
+    .bind(finishedAt, message, runId)
+    .run());
+  // The update may have committed even if its response timed out. Preserve terminal results.
+  if (result.rowsAffected !== 1) {
+    const current = await db.prepare('SELECT status FROM fetch_runs WHERE id = ?').bind(runId).first<{ status: string }>();
+    if (current?.status !== 'failed') return false;
+  }
+  await retryTransientDatabaseOperation(() => releaseRefreshLock(db, runId));
+  return true;
+}
+
 export async function updateRefreshRunBuildId(db: AppDb, runId: string, buildId: string) {
   await db.prepare('UPDATE fetch_runs SET cnb_build_id = ? WHERE id = ?').bind(buildId, runId).run();
 }
@@ -124,22 +140,23 @@ export async function finishRefreshRun(
     message: string;
   },
 ) {
-  await db
+  const finishedAt = new Date().toISOString();
+  await retryTransientDatabaseOperation(() => db
     .prepare(
       `UPDATE fetch_runs
        SET finished_at = ?, status = ?, sse_count = ?, szse_count = ?, message = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status IN ('queued', 'running')`,
     )
     .bind(
-      new Date().toISOString(),
+      finishedAt,
       values.status,
       values.sseCount || 0,
       values.szseCount || 0,
       values.message,
       runId,
     )
-    .run();
-  await releaseRefreshLock(db, runId);
+    .run());
+  await retryTransientDatabaseOperation(() => releaseRefreshLock(db, runId));
 }
 
 export async function refreshRunById(db: AppDb, runId: string) {

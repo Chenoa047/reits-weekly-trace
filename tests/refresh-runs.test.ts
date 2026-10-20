@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createClient } from '@libsql/client';
+import { createClient, type InValue } from '@libsql/client';
 import { createDbAdapter } from '../db/index.ts';
 import {
   activeRefreshRun,
   expireStaleRefreshRuns,
   finishRefreshRun,
   failQueuedRefreshRun,
+  failActiveRefreshRun,
   queueRefreshRun,
   refreshRunById,
   startQueuedRefreshRun,
@@ -180,5 +181,67 @@ void test('部分成功是可查询的终态', async () => {
     assert.equal((await refreshRunById(db, queued.runId))?.status, 'partial');
   } finally {
     client.close();
+  }
+});
+
+void test('进程异常退出可结束运行中任务并释放锁，迟到的完成不能覆盖失败', async () => {
+  const { client, db } = await testDb();
+  try {
+    const queued = await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' });
+    if (!queued.ok) return assert.fail('queue failed');
+    await startQueuedRefreshRun(db, queued.runId);
+    assert.equal(await failActiveRefreshRun(db, queued.runId, '抓取程序异常退出：数据库连接超时。'), true);
+    assert.equal((await refreshRunById(db, queued.runId))?.status, 'failed');
+    await finishRefreshRun(db, queued.runId, { status: 'ok', message: '迟到的完成' });
+    assert.equal((await refreshRunById(db, queued.runId))?.status, 'failed');
+    assert.equal((await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' })).ok, true);
+  } finally { client.close(); }
+});
+
+void test('异常退出回写不覆盖成功结果，也不释放另一任务的锁', async () => {
+  const { client, db } = await testDb();
+  try {
+    const first = await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' });
+    if (!first.ok) return assert.fail('queue failed');
+    await startQueuedRefreshRun(db, first.runId);
+    await finishRefreshRun(db, first.runId, { status: 'ok', message: '完成' });
+    const next = await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' });
+    if (!next.ok) return assert.fail('queue failed');
+    assert.equal(await failActiveRefreshRun(db, first.runId, '迟到的错误'), false);
+    await finishRefreshRun(db, first.runId, { status: 'failed', message: '迟到的错误' });
+    assert.equal((await refreshRunById(db, first.runId))?.status, 'ok');
+    assert.equal((await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' })).ok, false);
+  } finally { client.close(); }
+});
+
+void test('终态已写入但响应超时时，重试不覆盖结果且仍释放本任务锁', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const status of ['failed', 'ok'] as const) {
+    const { client, db } = await testDb();
+    try {
+      const queued = await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' });
+      if (!queued.ok) return assert.fail('queue failed');
+      await startQueuedRefreshRun(db, queued.runId);
+      let updates = 0;
+      const wrapped = createDbAdapter({ execute: async (statement: { sql: string; args: InValue[] }) => {
+        const result = await client.execute(statement);
+        const sql = statement.sql;
+        if (/UPDATE fetch_runs\s+SET (?:status = 'failed'|finished_at =)/.test(sql)) {
+          updates++;
+          if (updates === 1) throw new Error('database timeout');
+        }
+        return result;
+      } } as never);
+      const outcome = status === 'failed'
+        ? failActiveRefreshRun(wrapped, queued.runId, '异常退出')
+        : finishRefreshRun(wrapped, queued.runId, { status: 'ok', message: '完成' });
+      // Wait until the committed update has thrown and the retry timer is scheduled.
+      for (let i = 0; i < 10; i++) await new Promise<void>(resolve => setImmediate(resolve));
+      t.mock.timers.tick(1000);
+      await outcome;
+      assert.equal(updates, 2);
+      assert.equal((await refreshRunById(db, queued.runId))?.status, status);
+      assert.equal((await queueRefreshRun(db, { start: '2026-10-19', end: '2026-10-20' })).ok, true);
+    } finally { client.close(); }
   }
 });
