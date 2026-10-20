@@ -1,6 +1,6 @@
 # 小黑板：数据库版接入说明
 
-已完成数据库留言与 Supabase 邮箱验证码登录的接入代码（本地提交 `bd0b44f`）。**2026-10-20 已在 Turso 网页控制台创建并核验两张留言表和索引**；Supabase项目已Healthy，用户已保存自定义SMTP，首次注册及再次登录的数字验证码模板均已保存，Site URL已核对。163发件邮箱已在Brevo核对为Verified；Vercel登录与变量、远端推送、生产部署和真实跨设备验收未完成，不能称网站登录已经可用。
+数据库留言与 Supabase 邮箱验证码登录代码已部署（业务提交`bd0b44f`，Production源码`2da3820`）。Turso两张表及索引、Supabase项目、SMTP保存、163发件验证、首次注册及再次登录验证码模板、Site URL和Vercel配置已完成。用户截图显示Ready/Production，助手已在正式网站看到正常邮箱验证码登录入口。真实邮件送达、登录、后台回复及跨设备验收仍待用户本人完成，不能将部署成功等同于完整功能验收。
 
 ## 已实现
 
@@ -41,7 +41,7 @@
    不要填 `service_role` 或 secret key，不在对话、截图、源码或提交中展示真实值。无需在 CNB 添加这些变量。助手不得打开、读取或代填这些值。
 6. 配置保存后部署新版本。修改环境变量后，需要重新部署才能对新部署生效。
 
-当前进度：用户已登录Vercel，Production的SUPABASE_URL已添加并核验。SUPABASE_PUBLISHABLE_KEY仅名称已准备、类型Secret、值留空，等待用户本人填写和保存；助手不查看密钥页或值。当前Production源码仍为a0f4740，必须先推送含bd0b44f的新代码，再检查新部署，不能仅重新部署旧提交。
+当前进度：Production的SUPABASE_URL已添加；用户本人填写并确认保存SUPABASE_PUBLISHABLE_KEY后自行推送，截图确认新Production源码2da3820、Ready。助手未查看密钥页或值；只检查公开网站正常显示邮箱验证码登录入口，没有代发邮件或验证真实登录。
 
 官方SDK当前要求Node.js 22以上，package.json最低版本已同步；CNB现有镜像为node:22-bookworm，无需更改。Vercel应使用22或更新的受支持版本。
 
@@ -95,4 +95,4 @@ git push github main
 git push cnb main
 ```
 
-Vercel 对应提交显示 **Ready / Production** 后，用户本人完成前述四项跨设备验收。助手尚未推送或部署，真实登录配置未完成。
+Vercel 对应提交已显示 **Ready / Production**，用户本人继续完成前述四项跨设备验收。推送由用户执行，助手未使用任何仓库认证或部署凭据；SMTP实际送达及真实身份验收尚未完成。
