@@ -1,6 +1,6 @@
 # 小黑板：数据库版接入说明
 
-已完成数据库留言与 Supabase 邮箱验证码登录的接入代码。**2026-10-20 已在 Turso 网页控制台创建并核验两张留言表和索引**；登录服务的真实配置、邮件发送、远端推送、生产部署和真实跨设备验收仍未完成，不能将本地模拟验证称为网站已经可用。
+已完成数据库留言与 Supabase 邮箱验证码登录的接入代码（本地提交 `bd0b44f`）。**2026-10-20 已在 Turso 网页控制台创建并核验两张留言表和索引**；Supabase项目已Healthy，用户已保存自定义SMTP，首次注册及再次登录的数字验证码模板均已保存，Site URL已核对。用户选择的163发件邮箱仍需在Brevo验证；Vercel变量、远端推送、生产部署和真实跨设备验收未完成，不能称网站登录已经可用。
 
 ## 已实现
 
@@ -22,7 +22,8 @@
 
 1. 打开 https://supabase.com/dashboard ，本人登录或注册，创建 **Free** 项目，名称可用 `reits-weekly-auth`。数据库密码由本人管理；留言继续保存在现有 Turso，不迁移到 Supabase。
 2. Authentication → URL Configuration：Site URL 填 `https://reits-weekly-trace.vercel.app`。保留邮箱身份验证，不关闭邮箱确认，不启用匿名登录作为留言身份。本实现使用输入数字验证码，**不需要**新增邮件链接回调地址。
-3. Authentication → Email Templates → Magic Link：把邮件内容改成数字验证码模板。模板变量不是实际验证码，可填：
+3. **先配置SMTP，再修改模板**：当前后台未配置自定义SMTP时禁止编辑模板。默认发信仅团队邮箱、每小时2封，不能据此开放任意访客登录。本次选用Brevo Free；发件人必须验证，且Supabase的Sender email address必须与Brevo已验证的邮箱完全一致。Host为`smtp-relay.brevo.com`，端口587；SMTP Login及SMTP key由用户本人查看/填写，助手不得访问密钥页面或读取、创建、复制这些值。注册成功或保存SMTP不等于实际发信已经成功，仍需用户本人验收送达。
+4. Authentication → Emails → Templates：同时修改 **Magic link or OTP** 和 **Confirm sign up** 为数字验证码邮件。新用户及未确认用户可能走首次注册模板，仅修改Magic Link会让新访客仍收到链接。模板变量不是实际验证码，可填：
 
    ```html
    <h2>REITs 小黑板登录</h2>
@@ -30,7 +31,6 @@
    <p>请返回网站输入此验证码。如果不是您操作，请忽略此邮件。</p>
    ```
 
-4. 默认发信仅允许向 Supabase 项目团队成员邮箱发送，当前限制每小时2封；可先本人测试。**开放给普通访客之前，必须由本人在 Authentication → SMTP Settings 配置发信服务。**可以选择有免费额度的服务，但需要满足服务商的发件人验证要求；服务商账户、SMTP密码等均由本人管理。未配置时不能宣称任意访客均可收验证码。
 5. 在 Vercel 项目 Settings → Environment Variables 中，由本人新增以下**服务端变量**，选择 Production（需要预览时另选 Preview）：
 
    | 变量名 | 用户填写内容 |
