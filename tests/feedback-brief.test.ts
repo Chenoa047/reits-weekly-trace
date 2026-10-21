@@ -59,7 +59,7 @@ void test('保底简报只概括一级标题，其他意见单列，最后介绍
   assert.deepEqual(result.evidence.filter((item) => item.claim.includes('其余还包括')).map((item) => item.page), [5, 5]);
   assert.deepEqual(result.evidence.slice(-2).map((item) => item.fileUrl), [record.files[1].url, record.files[1].url]);
   assert.notEqual(briefRulesVersionFor('反馈/问询'), BRIEF_RULES_VERSION);
-  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-20-feedback-v9');
+  assert.equal(briefRulesVersionFor('反馈/问询'), '2026-10-21-feedback-v10');
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(
     needsBriefRegeneration(
@@ -331,7 +331,40 @@ const expansionRecord = {
   ],
 };
 
-function assertExpansionEvidence(result: NonNullable<ReturnType<typeof buildExchangeQuestionFallback>>, material = expansionRecord) {
+// Supplied 泰华城 prospectus, physical page 30 (printed page 29).
+// The exchange question is an existing mock; it does not reproduce the actual feedback topics.
+const taihuaProspectus = '[第30页] 四、不动产项目概况 项目 项目一 项目二 不动产项目名称 潍坊泰华城 项目 青州泰华城项目 大类资产类型 商业不动产 商业不动产 不动产项目业态 购物中心 购物中心 项目所在地 山东省潍坊市奎文区 山东省青州市 资产范围 位于山东省潍坊市奎文区的新天地项目及新天地接建项目，具体包括房屋所有权及其占用范围内的国有建设用地使用权。位于山东省青州市的青州泰华城购物中心项目。建设内容和规模 新天地项目为地上5层商业，地下2层车库及商业；新天地接建项目为地上4层商业，地下2层车库 地上4层商业，地下1层车库 建筑面积和可供出租或者经营使用面积 建筑面积119,460.26平方米 可供出租面积60,414.11平方米 建筑面积199,235.05平方米 可供出租面积68,008.35平方米 开竣工时间以及投入运营时间';
+const taihuaRecord = {
+  ...record, shortName: '国联安泰华城REIT', updateDate: '2026-10-20',
+  files: [record.files[0], { ...record.files[1], originalTitle: '国联安泰华城招募说明书（草案）', content: taihuaProspectus }],
+};
+
+void test('泰华城建设内容无面积时读取独立建筑面积行，保留双项目位置和两项原页证据', () => {
+  const result = buildExchangeQuestionFallback(taihuaRecord)!;
+  assert.match(result.brief, /潍坊泰华城项目、青州泰华城项目，分别位于山东省潍坊市奎文区、山东省青州市/);
+  assert.match(result.brief, /建筑面积合计约31\.87万平方米/);
+  assert.doesNotMatch(result.brief, /12\.84万平方米|11\.95万平方米|19\.92万平方米/);
+  const scales = result.evidence.filter(item => item.claim.includes('建筑面积合计'));
+  assert.deepEqual(scales.map(item => [item.page, item.quote]), [[30, '建筑面积119,460.26平方米'], [30, '建筑面积199,235.05平方米']]);
+  assertExpansionEvidence(result, taihuaRecord);
+});
+
+void test('独立面积行缺少一项目面积时仍拒绝发布，不能拿可出租面积补足', () => {
+  const incoming = { ...taihuaRecord, files: taihuaRecord.files.map(file => ({ ...file, content: file.content.replace('建筑面积199,235.05平方米', '建筑面积待核验') })) };
+  assert.throws(() => buildExchangeQuestionFallback(incoming), /missing_feedback_asset/);
+});
+
+void test('独立面积行精简后仍完整，建设内容重复面积时只取一个完整口径', () => {
+  const text = `[第1页] ${'不相关目录'.repeat(6000)}\n${taihuaProspectus}`;
+  const selected = selectRelevantText(text, '反馈资产', 9000);
+  const incoming = { ...taihuaRecord, files: taihuaRecord.files.map(file => file.kind === '招募说明书' ? { ...file, content: selected } : file) };
+  assert.match(buildExchangeQuestionFallback(incoming)!.brief, /建筑面积合计约31\.87万平方米/);
+  const repeated = { ...taihuaRecord, files: taihuaRecord.files.map(file => ({ ...file, content: file.content.replace('建设内容和规模', '建设内容和规模 建筑面积119,460.26平方米 建筑面积199,235.05平方米') })) };
+  assert.match(buildExchangeQuestionFallback(repeated)!.brief, /建筑面积合计约31\.87万平方米/);
+  assert.equal(buildExchangeQuestionFallback(repeated)!.evidence.filter(item => item.claim.includes('建筑面积合计')).length, 2);
+});
+
+function assertExpansionEvidence(result: NonNullable<ReturnType<typeof buildExchangeQuestionFallback>>, material: Pick<typeof record, 'files'> = expansionRecord) {
   for (const item of result.evidence) {
     const file = material.files.find(file => file.url === item.fileUrl)!;
     const pages = file.content.split(/(?=\[第\d+页\])/).filter(page => page.startsWith(`[第${item.page}页]`));
@@ -413,6 +446,7 @@ void test('旧版反馈完整稿和仅进度稿都会按当前规则重新生成
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-14-feedback-v6' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v7' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v8' }, incoming), true);
+  assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v9' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, brief: `${canonicalBriefOpening(incoming)}。`, briefRulesVersion: briefRulesVersionFor('反馈/问询') }, incoming), true);
   assert.equal(briefRulesVersionFor('认购结果'), '2026-10-16-subscription-v2');
 });

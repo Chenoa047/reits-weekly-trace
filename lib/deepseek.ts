@@ -30,7 +30,7 @@ type BriefMaterial = {
 
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
-const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-20-feedback-v9';
+const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-21-feedback-v10';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-20-reply-v4';

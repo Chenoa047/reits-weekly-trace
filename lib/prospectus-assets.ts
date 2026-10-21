@@ -27,15 +27,17 @@ export function prospectusAssetFacts(files: SourceFile[], offeringType?: string)
     if (expansion && (scope ? /[^、，,及和与]/.test(names.reduce((remaining, name) => remaining.replace(name, ''), scope)) : !/本次扩募|拟购入|新购入/.test(part.text.slice(0, name.index)))) continue;
     const commonLocation = location[2].slice(0, location[2].length / projects);
     const sharedLocation = commonLocation.repeat(projects) === location[2];
-    const place = sharedLocation ? commonLocation : location[2].replace(/(?<=.)广东省/g, '、广东省');
+    const place = sharedLocation ? commonLocation : location[2].replace(/(?<=[省市区县州])(?=[\u4e00-\u9fff]{2,3}省|(?:北京|天津|上海|重庆)市|(?:内蒙古|西藏)自治区|广西壮族自治区|宁夏回族自治区|新疆维吾尔自治区)/g, '、');
     const claim = `招募说明书${file.originalTitle?.includes('草案') ? '草案' : ''}显示，${expansion ? '本次扩募拟购入的' : ''}底层资产为${names.join('、')}，${projects > 1 ? sharedLocation ? '均' : '分别' : ''}位于${place}`;
     const evidence = (quote: string, page = part.page, sentence = claim): Evidence => ({ fileUrl: file.url, page, quote, claim: sentence });
     const facts = [{ claim, evidence: [evidence(name[0].replace(/(?:大类资产类型|不动产项目业态)$/, '')), evidence(`${location[1]}${location[2]}`, located!.page)] }];
     const table = nearby.map(page => page.text).join('\n').slice(name.index).split(/开竣工|使用期限|可供分配金额测算/)[0];
     // Use one table row, so repeated disclosure in the next row is not another project's scale.
     const constructionRow = table.match(/建设内容(?:和|及)规模([\s\S]+?)(?=建筑面积和可供|建筑面积及可供|$)/)?.[1];
-    const scaleText = constructionRow || table;
-    const scales = [...scaleText.matchAll(/(土地使用权面积|占地面积|总建筑面积|建筑总面积|(?<!登记|产权|人防|商业|文娱用房|车位)建筑面积|(?:发电)?总?装机容量)(?:合计|总计)?(?:为|:|：|约)?([\d,]+(?:\.\d+)?)(平方米|万平方米|MW|兆瓦|万千瓦|千瓦)/g)]
+    const scalePattern = /(土地使用权面积|占地面积|总建筑面积|建筑总面积|(?<!登记|产权|人防|商业|文娱用房|车位)建筑面积|(?:发电)?总?装机容量)(?:合计|总计)?(?:为|:|：|约)?([\d,]+(?:\.\d+)?)(平方米|万平方米|MW|兆瓦|万千瓦|千瓦)/;
+    const areaRow = table.match(/建筑面积(?:和|及)可供[\s\S]*/)?.[0];
+    const scaleText = constructionRow && scalePattern.test(constructionRow) ? constructionRow : areaRow || table;
+    const scales = [...scaleText.matchAll(new RegExp(scalePattern.source, 'g'))]
       .map(match => ({ page: nearby.find(page => page.text.includes(match[0]))!.page, quote: match[0], metric: match[1].includes('装机') ? '装机容量' : match[1], value: Number(match[2].replace(/,/g, '')), unit: match[3] }));
     // A construction row may disclose capacity as unit count × capacity rather than a labelled total.
     const construction = nearby.map(page => ({ page: page.page, text: page.text.match(/建设内容(?:和|及)规模(.+?)(?:决算总投资|建筑面积|开竣工|$)/)?.[1] || '' }))
