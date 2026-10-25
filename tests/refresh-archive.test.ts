@@ -41,24 +41,27 @@ void test('归档仅保存快照，首页保留简报；后续抓取不改写归
   } finally { client.close(); }
 });
 
-void test('不同周分别保存且倒序可查，旧版归档标记不再隐藏首页内容', async () => {
+void test('历史从2026-10-19固定起算，以前周报不可查，之后跨周累积且首页不受旧标记影响', async () => {
   const client = createClient({ url: ':memory:' });
   const db = createDbAdapter(client);
   try {
     await client.executeMultiple(schema);
     await upsertRecord(db, { ...record, id: 'old-project', updateDate: '2026-10-16', weekStart: '2026-10-12', weekEnd: '2026-10-18' });
     const old = await archiveCurrentWeek(db, '2026-10-18');
-    const oldSnapshot = await readWeeklyArchive(db, old.id);
+    const oldSnapshot = await db.prepare('SELECT snapshot_json FROM weekly_archives WHERE id = ?').bind(old.id).first();
     await upsertRecord(db, record);
     await upsertRecord(db, { ...record, id: 'not-refreshed' });
     const current = await archiveCurrentWeek(db, '2026-10-25');
     await db.prepare('UPDATE projects SET is_archived = 1 WHERE week_start = ?').bind(record.weekStart).run();
     assert.equal((await listCurrentWeek(db, '2026-10-25')).records.length, 2);
+    await upsertRecord(db, { ...record, id: 'next-week', updateDate: '2026-10-30', weekStart: '2026-10-26', weekEnd: '2026-11-01' });
+    const next = await archiveCurrentWeek(db, '2026-11-01');
     assert.deepEqual(await listWeeklyArchives(db), [
+      { ...next, weekStart: '2026-10-26', weekEnd: '2026-11-01', archivedAt: (await readWeeklyArchive(db, next.id))!.archivedAt },
       { ...current, weekStart: '2026-10-19', weekEnd: '2026-10-25', archivedAt: (await readWeeklyArchive(db, current.id))!.archivedAt },
-      { ...old, weekStart: '2026-10-12', weekEnd: '2026-10-18', archivedAt: oldSnapshot!.archivedAt },
     ]);
-    assert.deepEqual(await readWeeklyArchive(db, old.id), oldSnapshot);
+    assert.equal(await readWeeklyArchive(db, old.id), null);
+    assert.deepEqual(await db.prepare('SELECT snapshot_json FROM weekly_archives WHERE id = ?').bind(old.id).first(), oldSnapshot);
     assert.equal(await readWeeklyArchive(db, '2026-09-07_2026-09-13'), null);
   } finally { client.close(); }
 });
@@ -115,6 +118,10 @@ void test('历史接口无需登录可读，保存仍须管理员；无效编号
     assert.equal((await GET(request('?id=invalid'))).status, 400);
     assert.equal((await GET(request('?id=2000-01-03_2000-01-09'))).status, 404);
     assert.deepEqual(await (await GET(request())).json(), { archives: [] });
+    await db.prepare('INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json) VALUES (?, ?, ?, ?, ?)')
+      .bind('2026-10-12_2026-10-18', '2026-10-12', '2026-10-18', '2026-10-25T01:00:00Z', JSON.stringify([${JSON.stringify(record)}])).run();
+    assert.deepEqual(await (await GET(request())).json(), { archives: [] });
+    assert.equal((await GET(request('?id=2026-10-12_2026-10-18'))).status, 404);
     assert.equal((await POST(new Request('https://example.com/api/admin/archive', { method: 'POST' }))).status, 401);
     const date = todayChina(), range = weekRangeFor(date);
     await upsertRecord(db, { ...${JSON.stringify(record)}, updateDate: date, weekStart: range.start, weekEnd: range.end });
