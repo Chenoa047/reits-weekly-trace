@@ -135,7 +135,23 @@ const recentReplyValuations = [
     text: '本次反馈答复对估值模型中出租率、市场租金单价、预测期内市场租金增长率、长期增长率、收缴率、折现率等关键假设及评估基准日进行了调整，估值由22.35亿元下降2.15亿元（-9.62%）至20.20亿元，估值结果及估值参数详细调整情况如下：表24评估参数调整情况 估值结果22.35亿元20.20亿元 有效免租期5天/年9天/年',
     expected: /22\.35亿元.*2\.15亿元.*-9\.62%.*20\.20亿元/,
   },
+  {
+    name: '建信天津临港发展集团港口REIT', page: 140,
+    text: '参数调整后，不动产项目估值由28.72亿调整为22.54亿，下调幅度为21.52%。主要调整参数如下：表：不动产项目估值调整对比',
+    expected: /28\.72亿.*22\.54亿.*21\.52%/,
+  },
 ];
+
+void test('港口估值参数的答复措辞可识别，省略元的估值仍校验幅度且不混入吞吐量单位', () => {
+  const content = '[第139页] 答复：管理人、评估机构基于审慎性原则，对本项目资产估值模型中的吞吐量上限、吞吐量基数、港口作业包干费费率增速、折现率等关键假设进行了调整。\n[第140页] ' + recentReplyValuations[2].text;
+  const source = { ...record, files: [{ ...record.files[0], content }] };
+  const result = buildReplyFallback(source);
+  assert.ok(result);
+  assert.match(result.brief, /吞吐量上限、吞吐量基数、港口作业包干费费率增速、折现率等估值参数作出调整/);
+  assert.equal(result.evidence.find(item => item.claim.includes('估值参数'))?.page, 139);
+  assert.throws(() => buildReplyFallback({ ...source, files: [{ ...source.files[0], content: content.replace('21.52%', '11.52%') }] }), /conflicting_reply_valuation/);
+  assert.equal(buildReplyFallback({ ...record, files: [{ ...record.files[0], content: '[第140页] 答复：本项目估值由28.72亿调整为22.54亿吨。' }] }), null);
+});
 
 for (const sample of recentReplyValuations) {
   void test(`${sample.name}原文估值变化在正常生成、保底及精简材料中均保留`, () => {
@@ -251,6 +267,8 @@ void test('原文只有估值时不强行补写其他事项，也不从交易所
 });
 
 void test('回复新规则使旧估值摘要重新生成，其他阶段版本保持不变', () => {
+  assert.equal(briefRulesVersionFor('回复反馈'), '2026-10-25-reply-v5');
+  assert.equal(needsBriefRegeneration({ ...record, brief: parse([valuation]).brief, briefRulesVersion: '2026-10-20-reply-v4' }, record), true);
   assert.notEqual(briefRulesVersionFor('回复反馈'), BRIEF_RULES_VERSION);
   assert.equal(briefRulesVersionFor('受理'), BRIEF_RULES_VERSION);
   assert.equal(needsBriefRegeneration({ ...record, brief: parse([valuation]).brief, briefRulesVersion: BRIEF_RULES_VERSION }, record), true);

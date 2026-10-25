@@ -33,7 +33,7 @@ const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
 const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-21-feedback-v10';
 const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
-const REPLY_BRIEF_RULES_VERSION = '2026-10-20-reply-v4';
+const REPLY_BRIEF_RULES_VERSION = '2026-10-25-reply-v5';
 
 export function briefRulesVersionFor(stage: string) {
   if (stage === '询价') return INQUIRY_BRIEF_RULES_VERSION;
@@ -244,7 +244,7 @@ function buildInstructions(record: BriefMaterial, compact = false) {
 9. 首发与扩募是项目属性，不是进度。扩募项目正文必须明确“扩募”，且资产部分只写本次新增资产。先依据本次扩募概况或拟购入范围确认资产名单，不混入已持有、首发或历史扩募资产。项目概况表的“资产所在地”和“项目所在地”均可证明位置；跨页续表要联读。“项目一、项目二”等列头代表不同项目，须逐项对应名称、位置和同口径规模；同一项目在建设内容、建筑面积、可出租面积等行重复披露的数字不得重复累计。多个项目可以分别介绍，或同口径合计并为每个分项引用原页证据；不得只取第一列、只引用一个分项或把资料提取失败当成未披露。
 10. 简报正文不输出标题、说明、引用列表、页码或Markdown。整个回答只输出JSON对象：{"brief":"简报正文","evidence":[{"claim":"简报中的一个完整事实句","fileIndex":1,"quote":"原文件同一页中的连续原文"}]}。fileIndex从下方文件1开始。申报阶段无附件时evidence为空数组。
 
-本条阶段规则：${stageInstruction(record)}${round ? `\n本次为${round}${record.progressType === '回复反馈' ? '回复' : '反馈/问询'}，首句必须明确轮次，只概括本轮原文件，不沿用此前轮次的事实。` : ''}${
+本条阶段规则：${stageInstruction(record)}${record.progressType === '回复反馈' ? '\n回复估值专项核对：正文金额省略“元”、仅写“亿/万”时，须结合估值语境和对照表核实货币单位，不能据此忽略金额或“下调幅度”等比例。参数类别须按资产类型提取，港口项目还应核对吞吐量上限、吞吐量基数、港口作业包干费费率增速等已披露调整，不局限于租赁参数。' : ''}${round ? `\n本次为${round}${record.progressType === '回复反馈' ? '回复' : '反馈/问询'}，首句必须明确轮次，只概括本轮原文件，不沿用此前轮次的事实。` : ''}${
     compact
       ? record.progressType === '询价'
         ? '\n本次为精简重试：保持询价六类信息的规定顺序；可合并同类事实，但不得省略公告已披露的关键份额和比例；每条quote不超过120字。'

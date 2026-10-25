@@ -41,7 +41,7 @@ export function replyValuationFacts(files: SourceFile[]): Fact[] {
   const valuations: Fact[] = [];
   const terms = new Set<string>();
   for (const part of pages) {
-    const pattern = /(?:(?:不动产项目|项目|[一二三四五六七八九十\d]+个项目)?(?:整体|合计)(?:的)?(?:评估值|估值|评估价值)|(?:不动产项目|本项目)(?:的)?(?:评估值|估值|评估价值)|(?<=^|[。；，：,;:])(?:评估值|估值|评估价值))[^。；;]{0,30}?(?:由|从)(?:首次申报(?:时点|时)?|申报时点)?的?([\d,.]+)(亿|万)元(调整为|下降至|降至|下调至|上升至|升至|增至|上调至|(?:下降|下调|减少|增加|上调|上升)[\d,.]+(?:亿|万)元(?:\([+-]?\d+(?:\.\d+)?%\))?(?:至|为))([\d,.]+)(亿|万)元([^。；;]*)/g;
+    const pattern = /(?:(?:不动产项目|项目|[一二三四五六七八九十\d]+个项目)?(?:整体|合计)(?:的)?(?:评估值|估值|评估价值)|(?:不动产项目|本项目)(?:的)?(?:评估值|估值|评估价值)|(?<=^|[。；，：,;:])(?:评估值|估值|评估价值))[^。；;]{0,30}?(?:由|从)(?:首次申报(?:时点|时)?|申报时点)?的?([\d,.]+)(亿|万)元?(调整为|下降至|降至|下调至|上升至|升至|增至|上调至|(?:下降|下调|减少|增加|上调|上升)[\d,.]+(?:亿|万)元(?:\([+-]?\d+(?:\.\d+)?%\))?(?:至|为))([\d,.]+)(亿|万)(?:元|(?=[，,。；;：:]|$))([^。；;]*)/g;
     for (const match of part.text.matchAll(pattern)) {
       const tail = match[6].split(/[,，][^,，。；;:]{0,30}(?:如下|下表|详见)|[：:]/)[0];
       const before = Number(match[1].replace(/,/g, '')) * (match[2] === '亿' ? 1e8 : 1e4);
@@ -51,7 +51,7 @@ export function replyValuationFacts(files: SourceFile[]): Fact[] {
         throw new Error('conflicting_reply_valuation');
       const beforeRounding = 0.5 * 10 ** -(match[1].split('.')[1]?.length || 0) * (match[2] === '亿' ? 1e8 : 1e4);
       const afterRounding = 0.5 * 10 ** -(match[4].split('.')[1]?.length || 0) * (match[5] === '亿' ? 1e8 : 1e4);
-      const ratio = tail.match(/(降幅|增幅|涨幅|调整幅度|变动比例|变动幅度|下调|上调|(?:整体)?估值(?:下降|上升))(?:为|约为|约)?([+-]?\d+(?:\.\d+)?)%/) ||
+      const ratio = tail.match(/(降幅|增幅|涨幅|调整幅度|变动比例|变动幅度|下调幅度|上调幅度|下调|上调|(?:整体)?估值(?:下降|上升))(?:为|约为|约)?([+-]?\d+(?:\.\d+)?)%/) ||
         match[3].match(/(\()([+-]?\d+(?:\.\d+)?)%\)/);
       if (ratio) {
         const expected = (after - before) / before * 100;
@@ -82,12 +82,13 @@ export function replyValuationFacts(files: SourceFile[]): Fact[] {
   }
   const parameters = [
     ['出租率', /出租率/], ['租金假设', /租金假设/], ['租金增长率', /(?:固定)?租金增长率/],
-    ['租金收缴率', /(?:租金)?收缴率/], ['长期增长率', /长期增长率/], ['折现率', /(?:税前)?折现率/],
+    ['租金收缴率', /(?:租金)?收缴率/], ['长期增长率', /长期增长率/],
+    ['吞吐量上限', /吞吐量上限/], ['吞吐量基数', /吞吐量基数/], ['港口作业包干费费率增速', /港口作业包干费费率增速/], ['折现率', /(?:税前)?折现率/],
   ] as const;
   const changes: Array<{ label: string; fileUrl: string; page: number; quote: string }> = [];
   for (const [label, pattern] of parameters) {
     for (const part of pages) {
-      const sentence = part.text.split(/[。；]/).find(sentence => sentence.length <= 240 && pattern.test(sentence) && /(?:将|已).*(?:调整|更新)|(?:调整|更新).*(?:假设|参数)/.test(sentence));
+      const sentence = part.text.split(/[。；]/).find(sentence => sentence.length <= 240 && pattern.test(sentence) && /(?:将|已).*(?:调整|更新)|(?:调整|更新).*(?:假设|参数)|(?:假设|参数).*(?:调整|更新)/.test(sentence));
       const discount = label === '折现率' ? part.text.match(/(?:税前)?折现率(\d+(?:\.\d+)?)%(\d+(?:\.\d+)?)%/) : null;
       const quote = sentence || (discount && discount[1] !== discount[2] ? discount[0] : '');
       if (!quote) continue;
