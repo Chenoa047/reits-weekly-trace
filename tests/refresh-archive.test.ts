@@ -66,23 +66,35 @@ void test('历史从2026-10-19固定起算，以前周报不可查，之后跨�
   } finally { client.close(); }
 });
 
-void test('同周跨日归档更新同一份快照，兼容旧归档编号，不重复且保留文件及引用', async () => {
+void test('本周旧的12条及0条快照都不公开，新归档另存且同周仅更新一份', async () => {
   const client = createClient({ url: ':memory:' });
   const db = createDbAdapter(client);
   try {
     await client.executeMultiple(schema);
     const legacyId = '2026-10-19_2026-10-23';
     await db.prepare('INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json) VALUES (?, ?, ?, ?, ?)')
-      .bind(legacyId, '2026-10-19', '2026-10-23', '2026-10-23T01:00:00Z', JSON.stringify([record])).run();
+      .bind(legacyId, '2026-10-19', '2026-10-23', '2026-10-23T01:00:00Z', JSON.stringify(Array.from({ length: 12 }, (_, i) => ({ ...record, id: `old-${i}` })))).run();
+    const emptyLegacyId = '2026-10-19_2026-10-24';
+    await db.prepare('INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json) VALUES (?, ?, ?, ?, ?)')
+      .bind(emptyLegacyId, '2026-10-19', '2026-10-24', '2026-10-24T01:00:00Z', '[]').run();
+    const oldRows = (await db.prepare('SELECT * FROM weekly_archives ORDER BY id').all()).results;
+    assert.deepEqual(await listWeeklyArchives(db), []);
+    assert.equal(await readWeeklyArchive(db, legacyId), null);
+    assert.equal(await readWeeklyArchive(db, emptyLegacyId), null);
     const updated = { ...record, brief: `${record.brief}已更新。`, files: [{ label: '原文件', kind: '招募说明书' as const, originalTitle: '说明书.pdf', url: 'https://example.com/source.pdf' }], evidence: [{ fileUrl: 'https://example.com/source.pdf', page: 10, quote: '原文数据', claim: '已更新' }] };
     await upsertRecord(db, updated);
-    assert.equal((await archiveCurrentWeek(db, '2026-10-25')).id, legacyId);
-    const archive = await readWeeklyArchive(db, legacyId);
+    const first = await archiveCurrentWeek(db, '2026-10-23');
+    const saved = await archiveCurrentWeek(db, '2026-10-25');
+    assert.equal(saved.id, 'weekly-v2_2026-10-19');
+    assert.equal(first.id, saved.id);
+    const archive = await readWeeklyArchive(db, saved.id);
     assert.equal(archive?.weekEnd, '2026-10-25');
     assert.equal(archive?.records[0].brief, updated.brief);
     assert.deepEqual(archive?.records[0].files, updated.files);
     assert.deepEqual(archive?.records[0].evidence, updated.evidence);
     assert.equal((await listWeeklyArchives(db)).length, 1);
+    assert.equal((await listWeeklyArchives(db))[0].id, saved.id);
+    assert.deepEqual((await db.prepare('SELECT * FROM weekly_archives WHERE id IN (?, ?) ORDER BY id').bind(legacyId, emptyLegacyId).all()).results, oldRows);
   } finally { client.close(); }
 });
 
@@ -122,6 +134,10 @@ void test('历史接口无需登录可读，保存仍须管理员；无效编号
       .bind('2026-10-12_2026-10-18', '2026-10-12', '2026-10-18', '2026-10-25T01:00:00Z', JSON.stringify([${JSON.stringify(record)}])).run();
     assert.deepEqual(await (await GET(request())).json(), { archives: [] });
     assert.equal((await GET(request('?id=2026-10-12_2026-10-18'))).status, 404);
+    await db.prepare('INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json) VALUES (?, ?, ?, ?, ?)')
+      .bind('2026-10-19_2026-10-24', '2026-10-19', '2026-10-24', '2026-10-25T01:00:00Z', '[]').run();
+    assert.deepEqual(await (await GET(request())).json(), { archives: [] });
+    assert.equal((await GET(request('?id=2026-10-19_2026-10-24'))).status, 404);
     assert.equal((await POST(new Request('https://example.com/api/admin/archive', { method: 'POST' }))).status, 401);
     const date = todayChina(), range = weekRangeFor(date);
     await upsertRecord(db, { ...${JSON.stringify(record)}, updateDate: date, weekStart: range.start, weekEnd: range.end });

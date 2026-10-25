@@ -531,13 +531,7 @@ async function findRecord(db: D1, id: string) {
 export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
   const { range, records } = await listCurrentWeek(db, dateText);
   if (!records.length) throw new Error('empty_archive');
-  const previous = await db
-    .prepare('SELECT id FROM weekly_archives WHERE week_start = ? ORDER BY archived_at DESC, id DESC LIMIT 1')
-    .bind(range.start)
-    .first<{ id: string }>();
-  const sunday = new Date(`${range.start}T00:00:00Z`);
-  sunday.setUTCDate(sunday.getUTCDate() + 6);
-  const id = previous?.id || `${range.start}_${formatDateParts(sunday)}`;
+  const id = `${ARCHIVE_ID_PREFIX}${range.start}`;
   await db
     .prepare(
       `INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json)
@@ -570,6 +564,8 @@ type WeeklyArchiveRow = { id: string; week_start: string; week_end: string; arch
 
 // Fixed launch week: future weeks accumulate without moving this history boundary.
 const ARCHIVE_HISTORY_START = '2026-10-19';
+// Only snapshots saved after this reset are public, including within the launch week.
+const ARCHIVE_ID_PREFIX = 'weekly-v2_';
 
 function archiveSummary(row: WeeklyArchiveRow): WeeklyArchiveSummary {
   return { id: row.id, weekStart: row.week_start, weekEnd: row.week_end, archivedAt: row.archived_at, count: Number(row.count) };
@@ -577,15 +573,15 @@ function archiveSummary(row: WeeklyArchiveRow): WeeklyArchiveSummary {
 
 export async function listWeeklyArchives(db: D1) {
   const rows = await db.prepare(
-    'SELECT id, week_start, week_end, archived_at, json_array_length(snapshot_json) AS count FROM weekly_archives WHERE week_start >= ? ORDER BY week_start DESC, archived_at DESC, id DESC',
-  ).bind(ARCHIVE_HISTORY_START).all<WeeklyArchiveRow>();
+    'SELECT id, week_start, week_end, archived_at, json_array_length(snapshot_json) AS count FROM weekly_archives WHERE week_start >= ? AND id GLOB ? ORDER BY week_start DESC, archived_at DESC, id DESC',
+  ).bind(ARCHIVE_HISTORY_START, `${ARCHIVE_ID_PREFIX}*`).all<WeeklyArchiveRow>();
   return rows.results.map(archiveSummary);
 }
 
 export async function readWeeklyArchive(db: D1, id: string) {
   const row = await db.prepare(
-    'SELECT id, week_start, week_end, archived_at, snapshot_json, json_array_length(snapshot_json) AS count FROM weekly_archives WHERE id = ? AND week_start >= ? LIMIT 1',
-  ).bind(id, ARCHIVE_HISTORY_START).first<WeeklyArchiveRow & { snapshot_json: string }>();
+    'SELECT id, week_start, week_end, archived_at, snapshot_json, json_array_length(snapshot_json) AS count FROM weekly_archives WHERE id = ? AND week_start >= ? AND id GLOB ? LIMIT 1',
+  ).bind(id, ARCHIVE_HISTORY_START, `${ARCHIVE_ID_PREFIX}*`).first<WeeklyArchiveRow & { snapshot_json: string }>();
   if (!row) return null;
   // Historical wording and evidence are frozen at save time, independent of current writing rules.
   return { ...archiveSummary(row), records: JSON.parse(row.snapshot_json) as ReitsRecord[] };

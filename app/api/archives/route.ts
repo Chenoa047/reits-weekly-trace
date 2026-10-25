@@ -3,7 +3,7 @@ import { jsonHeaders, listWeeklyArchives, readWeeklyArchive } from '@/lib/reits'
 
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('id');
-  if (id !== null && !/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/.test(id)) {
+  if (id !== null && !/^(?:weekly-v2_\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2})$/.test(id)) {
     return Response.json({ message: '归档编号无效。' }, { status: 400, headers: jsonHeaders() });
   }
   try {
