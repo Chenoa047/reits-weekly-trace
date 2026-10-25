@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { readCurrentWeekLocalRecords, serializeLocalRecords } from '@/lib/visitor-edits';
 import { BlackboardPanel, AdminBlackboardPanel } from '@/components/blackboard';
+import type { WeeklyArchiveSummary } from '@/lib/reits';
 
 type ReitsFile = {
   label: string;
@@ -66,6 +67,8 @@ type VisitorArchive = {
   records: ReitsRecord[];
 };
 
+type WeeklyArchive = WeeklyArchiveSummary & { records: ReitsRecord[] };
+
 const localKey = 'reits-live-visitor-edits-v3';
 const legacyLocalKey = 'reits-live-visitor-edits-v2';
 const visitorArchiveKey = 'reits-visitor-local-archives-v1';
@@ -83,7 +86,7 @@ export default function Home() {
   const [records, setRecords] = useState<ReitsRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'intro' | 'briefs' | 'blackboard' | 'admin'>('briefs');
+  const [activeTab, setActiveTab] = useState<'intro' | 'briefs' | 'archives' | 'blackboard' | 'admin'>('briefs');
   const [typeFilter, setTypeFilter] = useState('全部');
   const [exchangeFilter, setExchangeFilter] = useState('全部');
   const [compareRecord, setCompareRecord] = useState<ReitsRecord | null>(null);
@@ -93,6 +96,7 @@ export default function Home() {
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [activeRefreshId, setActiveRefreshId] = useState('');
   const [refreshRun, setRefreshRun] = useState<RefreshRun | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     void loadData();
@@ -299,10 +303,18 @@ export default function Home() {
   }
 
   async function adminArchive() {
-    const response = await fetch('/api/admin/archive', { method: 'POST', headers: adminHeaders() });
-    const data = (await response.json().catch(() => ({}))) as { count?: number };
-    setMessage(response.ok ? `已归档当前周，共 ${data.count || 0} 条。` : '归档失败，请检查管理员密码。');
-    if (response.ok) await loadData();
+    if (archiving) return;
+    setArchiving(true);
+    try {
+      const response = await fetch('/api/admin/archive', { method: 'POST', headers: adminHeaders() });
+      const data = (await response.json().catch(() => ({}))) as { count?: number; message?: string };
+      setMessage(response.ok ? `已保存本周快照，共 ${data.count || 0} 条。可在“历史周报”查阅，本周简报继续显示。` : data.message || '归档失败，请检查管理员登录状态。');
+      if (response.ok) await loadData();
+    } catch {
+      setMessage('归档结果暂时无法确认，请在“历史周报”查看是否保存成功，稍后可重试。');
+    } finally {
+      setArchiving(false);
+    }
   }
 
   function adminHeaders(password = adminPassword) {
@@ -359,6 +371,7 @@ export default function Home() {
         <nav className="site-tabs mb-6" aria-label="工作台栏目">
           <TabButton active={activeTab === 'intro'} onClick={() => setActiveTab('intro')}>功能介绍</TabButton>
           <TabButton active={activeTab === 'briefs'} onClick={() => setActiveTab('briefs')}>简报速递</TabButton>
+          <TabButton active={activeTab === 'archives'} onClick={() => setActiveTab('archives')}>历史周报</TabButton>
           <TabButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')}>后台管理</TabButton>
         </nav>
 
@@ -400,8 +413,10 @@ export default function Home() {
             setCompareRecord={openCompareRecord}
             clearCompareRecord={() => setCompareRecord(null)}
             latestRun={payload?.latestRun}
+            openArchives={() => setActiveTab('archives')}
           />
         ) : null}
+        {activeTab === 'archives' ? <ArchivePanel /> : null}
         {activeTab === 'blackboard' ? <BlackboardPanel /> : null}
         {activeTab === 'admin' ? (
           <AdminPanel
@@ -416,6 +431,7 @@ export default function Home() {
             refreshRun={refreshRun}
             refreshActive={Boolean(activeRefreshId)}
             adminArchive={adminArchive}
+            archiving={archiving}
           />
         ) : null}
       </div>
@@ -442,7 +458,7 @@ function IntroPanel() {
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        {['每日定时更新', '按周自动归档', '本地编辑导出'].map((item, index) => (
+        {['每日定时更新', '每周快照归档', '本地编辑导出'].map((item, index) => (
           <article key={item} className="border border-[#d8d1cf] bg-white p-5">
             <span className="text-sm font-black text-[#96001e]">{String(index + 1).padStart(2, '0')}</span>
             <h3 className="mt-2 text-lg font-black">{item}</h3>
@@ -496,6 +512,7 @@ function BriefPanel(props: {
   setCompareRecord: (record: ReitsRecord) => void;
   clearCompareRecord: () => void;
   latestRun?: ApiPayload['latestRun'];
+  openArchives: () => void;
 }) {
   return (
     <section>
@@ -543,13 +560,14 @@ function BriefPanel(props: {
           <p className="text-sm font-bold text-[#96001e]">全站归档</p>
           <h2 className="mt-1 text-xl font-black">正式周报内容归档</h2>
           <p className="mt-3 text-sm leading-7 text-[#51484b]">
-            全站归档保存网站数据库中的正式内容，由管理员后台或定时任务触发。服务端生成并通过格式校验的简报会进入正式内容，访客本地编辑不会影响全站归档。
+            管理员归档时保存本周全部正式简报，供所有访客在“历史周报”查阅。本周内容继续正常显示，后续抓取不改写快照；同周再次归档会更新该周快照。本机临时编辑不进入全站归档。
           </p>
           <div className="archive-status">
             <span>当前周</span>
             <strong>{props.records.length} 个项目</strong>
-            <em>周末归档后固定</em>
+            <em>保存快照，保留当前展示</em>
           </div>
+          <button className="btn-muted mt-3" onClick={props.openArchives}>查阅历史周报</button>
         </article>
         <article className="archive-card visitor">
           <p className="text-sm font-bold text-[#96001e]">访客本地归档</p>
@@ -640,6 +658,87 @@ function BriefPanel(props: {
   );
 }
 
+function ArchivePanel() {
+  const [archives, setArchives] = useState<WeeklyArchiveSummary[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [archive, setArchive] = useState<WeeklyArchive | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [compare, setCompare] = useState<ReitsRecord | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await fetch(selectedId ? `/api/archives?id=${encodeURIComponent(selectedId)}` : '/api/archives', { cache: 'no-store' });
+        const data = await response.json() as { archives?: WeeklyArchiveSummary[]; archive?: WeeklyArchive; message?: string };
+        if (cancelled) return;
+        if (!response.ok) {
+          setError(data.message || '历史周报读取失败。');
+          return;
+        }
+        if (selectedId) setArchive(data.archive || null);
+        else setArchives(data.archives || []);
+      } catch {
+        if (!cancelled) setError('历史周报读取失败，请稍后重试。');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [selectedId, retry]);
+
+  function selectArchive(id: string) {
+    setArchive(null);
+    setCompare(null);
+    setSelectedId(id);
+  }
+
+  return (
+    <section className="grid gap-5" aria-label="历史周报">
+      <div className="border border-[#d8d1cf] bg-[#f7f1e0] p-5">
+        <h2 className="text-2xl font-black">历史周报</h2>
+        <p className="mt-2 text-sm leading-7 text-[#51484b]">按周保存的正式简报快照，所有访客均可查阅。每期内容以最近一次归档时为准，包含当时的正文、原文件链接和引用证据。</p>
+        {selectedId ? <button className="btn-muted mt-3" onClick={() => selectArchive('')}>返回归档目录</button> : null}
+      </div>
+      {loading ? <output className="border bg-white p-6">正在读取历史周报…</output> : error ? (
+        <div role="alert" className="border border-[#e0c27c] bg-white p-5">
+          <p>{error}</p><button className="btn-muted mt-3" onClick={() => setRetry(value => value + 1)}>重新读取</button>
+        </div>
+      ) : selectedId && archive ? (
+        <>
+          <div className="border border-[#d8d1cf] bg-white p-5">
+            <h3 className="text-xl font-black">{dotDate(archive.weekStart)} - {dotDate(archive.weekEnd)}</h3>
+            <p className="mt-2 text-sm text-[#695f62]">共 {archive.count} 条简报 · 保存于 {new Date(archive.archivedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）</p>
+          </div>
+          {archive.records.map(record => (
+            <div className="grid gap-3" key={record.id}>
+              <ProjectCard record={record} localEdit={false} updateLocalRecord={() => undefined} setCompareRecord={setCompare} />
+              {compare?.id === record.id ? <ComparePanel record={record} onClose={() => setCompare(null)} /> : null}
+            </div>
+          ))}
+        </>
+      ) : !archives.length ? (
+        <div className="empty-state"><strong>暂无历史周报</strong><p>管理员在后台点击“归档本周”后，即可在这里查阅。</p></div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {archives.map(item => (
+            <article className="archive-card" key={item.id}>
+              <h3 className="text-xl font-black">{dotDate(item.weekStart)} - {dotDate(item.weekEnd)}</h3>
+              <p className="mt-2 text-sm text-[#695f62]">{item.count} 条简报 · 保存于 {new Date(item.archivedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）</p>
+              <button className="btn-primary mt-4" onClick={() => selectArchive(item.id)}>查阅这期周报</button>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProjectCard(props: {
   record: ReitsRecord;
   localEdit: boolean;
@@ -688,6 +787,7 @@ function AdminPanel(props: {
   refreshRun: RefreshRun | null;
   refreshActive: boolean;
   adminArchive: () => void;
+  archiving: boolean;
 }) {
   return (
     <section className="grid gap-5">
@@ -706,7 +806,7 @@ function AdminPanel(props: {
             <button className="btn-primary" onClick={props.adminRefresh} disabled={props.refreshActive}>
               {props.refreshActive ? '抓取任务运行中…' : '立即抓取并生成简报'}
             </button>
-            <button className="btn-muted" onClick={props.adminArchive}>归档当前周</button>
+            <button className="btn-muted" onClick={props.adminArchive} disabled={props.archiving}>{props.archiving ? '正在保存快照…' : '归档本周'}</button>
             {props.refreshRun ? (
               <output className="w-full text-sm leading-6 text-[#51484b]">
                 任务状态：{refreshStatusLabel(props.refreshRun.status)}。{props.refreshRun.message || ''}

@@ -241,7 +241,7 @@ export async function listCurrentWeek(db: D1, dateText = todayChina()) {
   const rows = await db
     .prepare(
       `SELECT * FROM projects
-       WHERE update_date >= ? AND update_date <= ? AND is_archived = 0
+       WHERE update_date >= ? AND update_date <= ?
        ORDER BY update_date DESC, updated_at DESC`,
     )
     .bind(start, end)
@@ -530,12 +530,22 @@ async function findRecord(db: D1, id: string) {
 
 export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
   const { range, records } = await listCurrentWeek(db, dateText);
-  const id = `${range.start}_${range.end}`;
+  if (!records.length) throw new Error('empty_archive');
+  const previous = await db
+    .prepare('SELECT id FROM weekly_archives WHERE week_start = ? ORDER BY archived_at DESC, id DESC LIMIT 1')
+    .bind(range.start)
+    .first<{ id: string }>();
+  const sunday = new Date(`${range.start}T00:00:00Z`);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+  const id = previous?.id || `${range.start}_${formatDateParts(sunday)}`;
   await db
     .prepare(
       `INSERT INTO weekly_archives (id, week_start, week_end, archived_at, snapshot_json)
        VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO NOTHING`,
+       ON CONFLICT(id) DO UPDATE SET
+         week_end = excluded.week_end,
+         archived_at = excluded.archived_at,
+         snapshot_json = excluded.snapshot_json`,
     )
     .bind(
       id,
@@ -545,11 +555,37 @@ export async function archiveCurrentWeek(db: D1, dateText = todayChina()) {
       JSON.stringify(records),
     )
     .run();
-  await db
-    .prepare('UPDATE projects SET is_archived = 1 WHERE week_start = ?')
-    .bind(range.start)
-    .run();
   return { id, count: records.length };
+}
+
+export type WeeklyArchiveSummary = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  archivedAt: string;
+  count: number;
+};
+
+type WeeklyArchiveRow = { id: string; week_start: string; week_end: string; archived_at: string; count: number };
+
+function archiveSummary(row: WeeklyArchiveRow): WeeklyArchiveSummary {
+  return { id: row.id, weekStart: row.week_start, weekEnd: row.week_end, archivedAt: row.archived_at, count: Number(row.count) };
+}
+
+export async function listWeeklyArchives(db: D1) {
+  const rows = await db.prepare(
+    'SELECT id, week_start, week_end, archived_at, json_array_length(snapshot_json) AS count FROM weekly_archives ORDER BY week_start DESC, archived_at DESC, id DESC',
+  ).all<WeeklyArchiveRow>();
+  return rows.results.map(archiveSummary);
+}
+
+export async function readWeeklyArchive(db: D1, id: string) {
+  const row = await db.prepare(
+    'SELECT id, week_start, week_end, archived_at, snapshot_json, json_array_length(snapshot_json) AS count FROM weekly_archives WHERE id = ? LIMIT 1',
+  ).bind(id).first<WeeklyArchiveRow & { snapshot_json: string }>();
+  if (!row) return null;
+  // Historical wording and evidence are frozen at save time, independent of current writing rules.
+  return { ...archiveSummary(row), records: JSON.parse(row.snapshot_json) as ReitsRecord[] };
 }
 
 async function fetchSseRecords(

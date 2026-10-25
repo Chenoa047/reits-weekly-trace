@@ -69,7 +69,7 @@ textarea:focus-visible {
 
 .site-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid #d8d1cf;
   background: #fff;
 }
