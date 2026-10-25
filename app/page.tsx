@@ -217,7 +217,7 @@ export default function Home() {
 
   function saveVisitorArchive() {
     if (!payload) {
-      setMessage('本周数据尚未读取完成，暂不能保存本地归档。');
+      setMessage('本周数据尚未读取完成，暂不能保存本机编辑版本。');
       return;
     }
     const archive: VisitorArchive = {
@@ -230,21 +230,21 @@ export default function Home() {
     const next = [archive, ...visitorArchives].slice(0, 24);
     setVisitorArchives(next);
     localStorage.setItem(visitorArchiveKey, JSON.stringify(next));
-    setMessage('已保存访客本地归档。该归档只存在当前电脑和浏览器中。');
+    setMessage('已保存本机编辑版本，仅供当前电脑和浏览器查看，不会进入全站“历史周报”。');
   }
 
   function loadVisitorArchive(archive: VisitorArchive) {
     setRecords(archive.records);
     saveLocalRecords(archive.records, { start: archive.weekStart, end: archive.weekEnd });
     setLocalEdit(true);
-    setMessage(`已载入 ${dotDate(archive.weekStart)} - ${dotDate(archive.weekEnd)} 的访客本地归档。`);
+    setMessage(`已载入 ${dotDate(archive.weekStart)} - ${dotDate(archive.weekEnd)} 的本机编辑版本，现处于编辑模式。`);
   }
 
   function deleteVisitorArchive(id: string) {
     const next = visitorArchives.filter((archive) => archive.id !== id);
     setVisitorArchives(next);
     localStorage.setItem(visitorArchiveKey, JSON.stringify(next));
-    setMessage('已删除该访客本地归档记录。');
+    setMessage('已移除当前浏览器中保存的编辑版本。');
   }
 
   async function adminLogin() {
@@ -414,6 +414,7 @@ export default function Home() {
             clearCompareRecord={() => setCompareRecord(null)}
             latestRun={payload?.latestRun}
             openArchives={() => setActiveTab('archives')}
+            openAdmin={() => setActiveTab('admin')}
           />
         ) : null}
         {activeTab === 'archives' ? <ArchivePanel /> : null}
@@ -513,6 +514,7 @@ function BriefPanel(props: {
   clearCompareRecord: () => void;
   latestRun?: ApiPayload['latestRun'];
   openArchives: () => void;
+  openAdmin: () => void;
 }) {
   return (
     <section>
@@ -555,42 +557,47 @@ function BriefPanel(props: {
         </div>
       </section>
 
-      <section className="mb-5 grid gap-4 md:grid-cols-2">
+      <section className={`mb-5 grid gap-4 ${props.localEdit ? 'md:grid-cols-2' : ''}`}>
         <article className="archive-card">
           <p className="text-sm font-bold text-[#96001e]">全站归档</p>
           <h2 className="mt-1 text-xl font-black">正式周报内容归档</h2>
           <p className="mt-3 text-sm leading-7 text-[#51484b]">
-            管理员归档时保存本周全部正式简报，供所有访客在“历史周报”查阅。本周内容继续正常显示，后续抓取不改写快照；同周再次归档会更新该周快照。本机临时编辑不进入全站归档。
+            管理员进入“后台管理”，点击“归档本周”，即可把本周全部正式简报保存到网站，供所有访客在“历史周报”查阅。本周内容继续正常显示，后续抓取不改写快照；同周再次归档会更新该周快照。
           </p>
           <div className="archive-status">
             <span>当前周</span>
             <strong>{props.records.length} 个项目</strong>
             <em>保存快照，保留当前展示</em>
           </div>
-          <button className="btn-muted mt-3" onClick={props.openArchives}>查阅历史周报</button>
-        </article>
-        <article className="archive-card visitor">
-          <p className="text-sm font-bold text-[#96001e]">访客本地归档</p>
-          <h2 className="mt-1 text-xl font-black">保存自己的编辑版本</h2>
-          <p className="mt-3 text-sm leading-7 text-[#51484b]">
-            访客可将当前浏览器中的简报保存为个人归档，后续在同一台电脑、同一浏览器中读取或导出 Word。该归档不上传服务器。
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button className="btn-primary" onClick={props.saveVisitorArchive}>保存本周到本地归档</button>
-            <button className="btn-muted" onClick={props.exportWord}>导出当前简报</button>
-          </div>
-          <div className="mt-4 grid gap-2">
-            {props.visitorArchives.length ? props.visitorArchives.map((archive) => (
-              <div className="local-archive-row" key={archive.id}>
-                <button onClick={() => props.loadVisitorArchive(archive)}>
-                  <strong>{dotDate(archive.weekStart)} - {dotDate(archive.weekEnd)}</strong>
-                  <span>{archive.records.length} 项，保存于 {new Date(archive.savedAt).toLocaleString('zh-CN')}</span>
-                </button>
-                <button className="archive-delete" onClick={() => props.deleteVisitorArchive(archive.id)}>删除</button>
-              </div>
-            )) : <p className="text-sm text-[#695f62]">暂无访客本地归档。</p>}
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button className="btn-primary" onClick={props.openArchives}>查阅历史周报</button>
+            <button className="btn-muted" onClick={props.openAdmin}>前往后台归档本周</button>
           </div>
         </article>
+        {props.localEdit ? (
+          <article className="archive-card visitor">
+            <p className="text-sm font-bold text-[#96001e]">仅当前浏览器</p>
+            <h2 className="mt-1 text-xl font-black">我的本机编辑版本</h2>
+            <p className="mt-3 text-sm leading-7 text-[#51484b]">
+              保存你在当前浏览器中的编辑内容，方便以后在同一台电脑、同一浏览器中继续编辑或导出 Word。其他用户和其他设备看不到这些版本，也不会出现在全站“历史周报”中。
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button className="btn-primary" onClick={props.saveVisitorArchive}>保存我的本机编辑版本</button>
+              <button className="btn-muted" onClick={props.exportWord}>导出当前简报</button>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {props.visitorArchives.length ? props.visitorArchives.map((archive) => (
+                <div className="local-archive-row" key={archive.id}>
+                  <button onClick={() => props.loadVisitorArchive(archive)}>
+                    <strong>{dotDate(archive.weekStart)} - {dotDate(archive.weekEnd)}</strong>
+                    <span>{archive.records.length} 项，保存于 {new Date(archive.savedAt).toLocaleString('zh-CN')}</span>
+                  </button>
+                  <button className="archive-delete" onClick={() => props.deleteVisitorArchive(archive.id)}>删除</button>
+                </div>
+              )) : <p className="text-sm text-[#695f62]">尚未保存本机编辑版本。</p>}
+            </div>
+          </article>
+        ) : null}
       </section>
 
       <section className="mb-5 grid gap-4">
