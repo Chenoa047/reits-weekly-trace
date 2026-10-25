@@ -313,6 +313,7 @@ export async function upsertRecord(db: D1, record: ReitsRecord) {
        source_html = excluded.source_html,
        source_url = excluded.source_url,
        raw_json = excluded.raw_json,
+       is_archived = excluded.is_archived,
        updated_at = excluded.updated_at`,
     )
     .bind(
