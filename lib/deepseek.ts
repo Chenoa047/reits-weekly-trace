@@ -31,7 +31,7 @@ type BriefMaterial = {
 export const BRIEF_RULES_VERSION = '2026-09-20-v10';
 const INQUIRY_BRIEF_RULES_VERSION = '2026-09-22-inquiry-v1';
 const FEEDBACK_BRIEF_RULES_VERSION = '2026-10-21-feedback-v10';
-const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-10-16-subscription-v2';
+const SUBSCRIPTION_BRIEF_RULES_VERSION = '2026-11-03-subscription-v3';
 const OFFERING_BRIEF_RULES_VERSION = '2026-09-22-offering-v1';
 const REPLY_BRIEF_RULES_VERSION = '2026-10-25-reply-v5';
 
@@ -272,7 +272,7 @@ function buildMaterial(record: BriefMaterial, compact = false) {
 允许使用的原文件摘录：${
     record.files
       .map(
-        (file, index) => `
+        (file, index) => record.progressType === '认购结果' && file.kind === '发售' ? '' : `
 [文件${index + 1}]
 类型：${file.kind}
 原始标题：${file.originalTitle}
@@ -283,7 +283,7 @@ function buildMaterial(record: BriefMaterial, compact = false) {
           file.content
             ? compact
               ? record.progressType === '回复反馈' || record.progressType === '反馈/问询' || record.progressType === '认购结果'
-                ? selectRelevantText(file.content, file.kind === '招募说明书' && (record.progressType === '反馈/问询' || record.progressType === '认购结果') ? '反馈资产' : file.kind === '发售' && record.progressType === '认购结果' ? '认购定价' : record.progressType, compactLimit)
+                ? selectRelevantText(file.content, file.kind === '招募说明书' && (record.progressType === '反馈/问询' || record.progressType === '认购结果') ? '反馈资产' : record.progressType, compactLimit)
                 : file.content.slice(0, compactLimit)
               : file.content
             : '未成功读取，不得引用该文件中的事实'
@@ -307,7 +307,7 @@ function stageInstruction(record: BriefMaterial) {
     注册生效: '第一句写日期、交易所、项目简称及状态变更为“注册生效”。后续只依据最新招募说明书写本次资产名称、位置和核心概况；只有最新招募说明书明确列示前后数据时才写估值变化。',
     询价: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额询价公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②询价区间、询价日及具体时间、预计基金份额募集期；③本次发售份额总额、战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按询价区间上下限与本次发售总份额计算的募集资金总额区间，注明为按上下限计算，单位和小数精度须核对；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。发行数据与注册文号、基金代码只能引用询价公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
     发售: '第一句严格写“X月X日，X交易所网站显示，XXREIT发布基金份额发售公告”（扩募项目须在简称后写明扩募）。随后按顺序写：①证监会准予募集注册的文件编号、基金代码；②发售认购价格、基金运作方式、存续期限、本次发售份额总额；③战略配售初始份额及占比，并写明原始权益人及其关联方和其他战略投资者的份额及占比，再写网下初始份额及占比、公众投资者认购初始份额及占比；④按认购价格乘以本次发售份额总额计算募集资金总额，写明“按认购价格和发售份额总额计算”，并核对单位和小数精度；⑤最后仅依据最新招募说明书介绍原始权益人及本次底层资产的名称、位置和少量基本规模信息。注册文号、基金代码、发行安排和份额数据只能引用发售公告；资产数据只能引用最新招募说明书。公告未披露的字段跳过，不补写、不改变其他字段顺序。',
-    认购结果: '第一句交代日期、交易所、项目简称及发布认购申请确认比例结果公告。后续依次写：总份额及战略/网下/公众初始份额；战略确认比例（若披露）；网下有效认购及配售比例；公众有效认购、确认比例及认购倍数；认购价及募集规模；最后据最新招募说明书介绍具体底层资产、位置及面积或装机容量，单位用万平方米或万千瓦。认购倍数按本次实际有效认购份额除以相应初始发售份额计算，不使用询价报价倍数或舍入后的确认比例倒推。认购结果公告未列价格时，仅可补用同一项目同次发行的发售公告；招募说明书预计募集规模不能作为最终募资。价格乘发售总份额的计算值须写“预计募集规模”，不冒称最终实际到账规模。缺失或冲突字段不编造。各项数据及每个计算基础都需原文证据，不能只有一句进度。',
+    认购结果: '第一句交代日期、交易所、项目简称及发布认购申请确认比例结果公告。认购结果数据只依据本次认购申请确认比例结果公告，不参考、补用或交叉校验发售公告。后续依次写：总份额及战略/网下/公众初始份额；战略确认比例或配售比例（若披露，沿用原文口径）；网下有效认购及配售比例；公众有效认购、确认比例或配售比例及认购倍数；认购价及募集规模仅在结果公告披露对应基础数据时写，未披露则跳过。最后据最新招募说明书介绍具体底层资产、位置及面积或装机容量，单位用万平方米或万千瓦，不从招募说明书补取认购数据。认购倍数按结果公告中本次实际有效认购份额除以相应初始发售份额计算，不使用询价报价倍数或舍入后的确认比例倒推。价格乘发售总份额的计算值须写“预计募集规模”，不冒称最终实际到账规模。缺失或结果公告内部冲突字段不编造。各项数据及每个计算基础都需原文证据，不能只有一句进度。',
     上市: '第一句写日期、交易所、项目简称及“正式上市”。后续以上市交易提示性公告为主，写交易代码、运作方式、期限、份额、发行价格和募集规模；需要补充时只能使用最新招募说明书、基金份额发售公告和认购申请确认比例结果公告。',
   };
   return `${rules[record.progressType] || '围绕本次最新披露动作和可核验事实撰写。'}${expansion}`;

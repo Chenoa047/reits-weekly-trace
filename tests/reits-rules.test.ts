@@ -161,7 +161,7 @@ void test('申报不展示附件，上市展示规定的四类原文件', () => 
   );
 });
 
-void test('询价发售只选本阶段与招募说明书，认购结果补用发售公告', () => {
+void test('询价、发售及认购结果各自只选本阶段公告与最新招募说明书', () => {
   const files = [
     file('基金份额询价公告.pdf'),
     file('基金份额发售公告.pdf'),
@@ -172,7 +172,7 @@ void test('询价发售只选本阶段与招募说明书，认购结果补用发
   for (const stage of ['询价', '发售', '认购结果']) {
     assert.deepEqual(
       selectStageFiles(stage, files).map((item) => item.kind),
-      stage === '认购结果' ? [stage, '招募说明书', '发售'] : [stage, '招募说明书'],
+      [stage, '招募说明书'],
     );
     assert.equal(selectStageFiles(stage, files)[1].publishedAt, '2026-09-01');
     assert.deepEqual(missingRequiredMaterial(stage, [files[4]]), [stage]);
@@ -185,9 +185,9 @@ void test('受理、注册生效必须有招募说明书，反馈必须有交易
   assert.deepEqual(missingRequiredMaterial('反馈/问询', [file('关于某项目审核问询函.pdf', '问询与回复')]), []);
 });
 
-void test('认购结果不能补用未来或不同发行属性的发售公告', () => {
+void test('认购结果不引用任何日期或发行属性的发售公告', () => {
   const files = [file('认购申请确认比例结果公告', '信息披露', '2026-10-14'), file('基金份额发售公告', '信息披露', '2026-09-24'), file('基金份额发售公告', '信息披露', '2026-10-15'), file('扩募基金份额发售公告', '信息披露', '2026-10-01')];
-  assert.equal(selectStageFiles('认购结果', files).find(item => item.kind === '发售')?.publishedAt, '2026-09-24');
+  assert.deepEqual(selectStageFiles('认购结果', files).map(item => item.kind), ['认购结果']);
 });
 
 void test('只有四类一级市场公告进入公告阶段', () => {

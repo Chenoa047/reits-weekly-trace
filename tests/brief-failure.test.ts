@@ -7,6 +7,7 @@ import {
 } from '../lib/brief-failure.ts';
 
 void test('质量失败按可行动原因分类', () => {
+  assert.equal(describeBriefFailure(new Error('conflicting_subscription_terms')), '认购结果公告内部数据存在冲突，待核验');
   assert.equal(
     describeBriefFailure(new Error('invalid_evidence_format')),
     '模型返回格式错误',

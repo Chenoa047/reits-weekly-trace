@@ -11,6 +11,7 @@ export async function addDocumentExcerpts(
   stage: string,
   files: ReitsSourceFile[],
 ) {
+  if (stage === '认购结果') files = files.filter(file => file.kind !== '发售');
   const perFileLimit = Math.floor(MAX_TOTAL_EXCERPT_CHARS / Math.max(files.length, 1));
   const hydrated: ReitsSourceFile[] = [];
   for (const file of files) {
@@ -20,9 +21,7 @@ export async function addDocumentExcerpts(
     ...file,
     content: selectRelevantText(
       file.content || '',
-      stage === '认购结果' && file.kind === '发售'
-        ? '认购定价'
-        : stage === '询价' && file.kind === '招募说明书'
+      stage === '询价' && file.kind === '招募说明书'
         ? '询价资产'
         : stage === '发售' && file.kind === '招募说明书'
           ? '发售资产'
@@ -120,15 +119,6 @@ function pdfReferer(url: string) {
 
 export function selectRelevantText(text: string, stage: string, limit: number) {
   if (text.length <= limit) return text;
-  if (stage === '认购定价') {
-    const matches = [...text.matchAll(/(?:认购价格|发售价格)(?:为|：|:)?\s*\d[\d.]*/g)];
-    if (!matches.length) return text.slice(0, limit);
-    return matches.slice(0, 3).map(match => {
-      const start = Math.max(0, match.index - 150);
-      const marker = text.slice(0, start).match(/\[第\d+页\]/g)?.at(-1) || '';
-      return `${marker} ${text.slice(start, start + Math.floor(limit / 3) - 20)}`;
-    }).join('\n').slice(0, limit);
-  }
   if (stage === '反馈/问询') return selectFeedbackText(text, limit);
   if (stage === '回复反馈') return selectReplyText(text, limit);
   const keywords: Record<string, string[]> = {

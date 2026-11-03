@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  addDocumentExcerpts,
   isPdfTextTooSparse,
   selectRelevantText,
 } from '../lib/pdf-text.ts';
@@ -33,14 +34,21 @@ void test('发售长公告与招募说明书保留各自需要的事实', () => 
   assert.match(selectedNotice, /证监许可〔2026〕1234号/);
   assert.match(selectedNotice, /认购价格4\.20元\/份/);
   assert.match(selectedNotice, /战略配售初始份额1\.2亿份/);
-  const resultPricing = selectRelevantText(`${front}\n[第58页] 基金份额认购价格为3.451元/份。`, '认购定价', 4000);
-  assert.match(resultPricing, /\[第58页\]/);
-  assert.match(resultPricing, /3\.451元\/份/);
 
   const asset = '[第80页] 底层资产为甲园区，建筑面积8万平方米，原始权益人为甲公司。';
   const selectedAsset = selectRelevantText(`${front}\n${asset}`, '发售资产', 5_000);
   assert.match(selectedAsset, /底层资产为甲园区/);
   assert.match(selectedAsset, /原始权益人为甲公司/);
+});
+
+void test('认购结果提取附件时不下载旧材料集中的发售公告', async () => {
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('不应下载发售公告'); };
+  try {
+    assert.deepEqual(await addDocumentExcerpts('认购结果', [{ kind: '发售', label: '发售公告', originalTitle: '发售公告', url: 'https://example.com/offering.pdf' }]), []);
+  } finally {
+    globalThis.fetch = fetch;
+  }
 });
 
 void test('长反馈函同时保留一级标题和最后的其他反馈意见', () => {

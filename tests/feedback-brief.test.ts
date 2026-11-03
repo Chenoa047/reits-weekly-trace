@@ -448,7 +448,7 @@ void test('旧版反馈完整稿和仅进度稿都会按当前规则重新生成
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v8' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, briefRulesVersion: '2026-10-20-feedback-v9' }, incoming), true);
   assert.equal(needsBriefRegeneration({ ...incoming, brief: `${canonicalBriefOpening(incoming)}。`, briefRulesVersion: briefRulesVersionFor('反馈/问询') }, incoming), true);
-  assert.equal(briefRulesVersionFor('认购结果'), '2026-10-16-subscription-v2');
+  assert.equal(briefRulesVersionFor('认购结果'), '2026-11-03-subscription-v3');
 });
 
 void test('模型服务失败或返回无效正文时，扩募仍能生成包含全部新增资产和分项证据的反馈稿', () => {

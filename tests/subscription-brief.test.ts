@@ -13,24 +13,26 @@ const record = { exchange: '深交所', shortName: '银华粤海水务水利REIT
   { kind: '发售', label: '发售公告', originalTitle: '发售公告', url: 'https://example.com/offering.pdf', content: '[第2页] 基金份额认购价格为3.451元/份，发售份额总额为5亿份。' },
 ] };
 
-void test('认购结果按原文单位核算份额、认购倍数及预计规模，每句保留证据', () => {
+void test('认购结果只按结果公告核算份额及认购倍数，每句保留该公告证据', () => {
   const facts = subscriptionResultFacts(record.files);
   const text = facts.map(fact => fact.claim).join('。');
   assert.match(text, /5亿份.*3\.5亿份.*1\.05亿份.*0\.45亿份/);
   assert.match(text, /185\.123亿份/);
   assert.match(text, /164\.747亿份.*0\.27314478%.*366\.1倍/);
   assert.match(text, /0\.56719046%/);
-  assert.match(text, /预计募集规模为17\.255亿元/);
-  assert.doesNotMatch(text, /最终募集规模|218\.26倍/);
+  assert.doesNotMatch(text, /认购价格|募集规模|218\.26倍/);
   assert.ok(facts.every(fact => fact.evidence.length));
-  assert.equal(facts.at(-1)?.evidence.length, 2);
+  assert.ok(facts.flatMap(fact => fact.evidence).every(item => item.fileUrl === record.files[0].url));
+  const publicFact = facts.find(fact => fact.claim.includes('认购倍数'))!;
+  assert.ok(publicFact.evidence.some(item => item.quote.includes('公众投资者的有效认购')));
+  assert.ok(publicFact.evidence.some(item => item.quote.includes('公众投资者认购的初始')));
 });
 
 void test('认购结果即使模型只给进度，也从原文补全认购事实和已核验资产', () => {
   const parsed = parseBriefResponse(JSON.stringify({ brief: `${canonicalBriefOpening(record)}。${asset}。`, evidence: [{ claim: asset, fileIndex: 2, quote: `${asset}。` }] }), record);
   assert.match(parsed.brief, /185\.123亿份/);
   assert.match(parsed.brief, /366\.1倍/);
-  assert.match(parsed.brief, /预计募集规模为17\.255亿元/);
+  assert.doesNotMatch(parsed.brief, /认购价格|募集规模/);
   assert.ok(parsed.brief.endsWith(`${asset}。`));
   assert.doesNotThrow(() => validateBrief(parsed.brief, record, parsed.evidence));
   const tableRecord = { ...record, files: record.files.map(file => file.kind === '招募说明书' ? { ...file, content: '[第32页] 不动产项目名称 项目公司1持有并运营的飞来峡项目 项目公司2持有并运营的潮州项目 不动产项目业态 水利设施 项目所在地 广东省清远市 广东省潮州市 资产范围 发电资产\n[第33页] 发电总装机容量140MW，总装机容量46MW。' } : file) };
@@ -44,9 +46,11 @@ void test('认购结果不能仅发布进度或漏掉已披露的类别', () => 
   assert.throws(() => validateBrief(`${canonicalBriefOpening(record)}。仅披露公众确认比例为0.27314478%。`, record, [{ fileUrl: record.files[0].url, page: 3, claim: '仅披露公众确认比例为0.27314478%', quote: '公众投资者有效认购申请确认比例为0.27314478%' }]), /missing_subscription_fields/);
 });
 
-void test('结果与发售公告价格冲突时停止发布，不拿招募说明书的预测价格替代', () => {
+void test('忽略发售公告的价格及冲突，结果公告未披露的价格规模不补写', () => {
   const conflicting = record.files.map(file => file.kind === '认购结果' ? { ...file, content: `${notice}\n[第4页] 认购价格为3.50元/份。` } : file);
-  assert.throws(() => subscriptionResultFacts(conflicting), /conflicting_subscription_terms/);
+  const facts = subscriptionResultFacts(conflicting);
+  assert.match(facts.map(fact => fact.claim).join('。'), /认购价格为3\.5元\/份.*预计募集规模为17\.5亿元/);
+  assert.ok(facts.flatMap(fact => fact.evidence).every(item => item.fileUrl === record.files[0].url));
   const noOffering = subscriptionResultFacts(record.files.filter(file => file.kind !== '发售').map(file => file.kind === '招募说明书' ? { ...file, content: `${file.content}预计认购价格为2.00元/份。` } : file));
   assert.doesNotMatch(noOffering.map(fact => fact.claim).join('。'), /认购价格|募集规模/);
   const directFinal = subscriptionResultFacts([{ kind: '认购结果', url: record.files[0].url, content: '[第4页] 最终募集规模为17.255亿元。' }]);
@@ -67,6 +71,28 @@ void test('不把网下询价或网下认购倍数写成公众认购倍数', () 
   const text = subscriptionResultFacts(files).map(fact => fact.claim).join('。');
   assert.match(text, /认购倍数约366\.1倍/);
   assert.doesNotMatch(text, /218\.26/);
+});
+
+// Public result PDF: gfund.com/2026/wsnotice/20261102/4423759505f448ecad1716e8c6f02195.pdf.
+const jiazeResult = {
+  ...record.files[0],
+  url: 'https://www.gfund.com/2026/wsnotice/20261102/4423759505f448ecad1716e8c6f02195.pdf',
+  content: '[第1页] 中国证监会准予本基金募集的基金份额总额为30,000万份。本基金战略配售初始发售份额为19,458万份，为本次基金份额发售总量的64.86%。\n[第2页] 本基金网下发售初始发售份额为7,500万份。截至2026年10月29日，《发售公告》中披露的11家网下投资者管理的29个有效报价配售对象全部按照《发售公告》的要求进行了网下认购并全额缴纳认购款，对应的有效认购基金份额数量为66,600万份。本基金公众发售初始发售份额为3,042万份。本基金的公众投资者有效认购基金份额数量为14,190.02万份。本基金战略投资者配售比例为100%。本基金网下投资者配售比例为11.26126126%。\n[第3页] 本基金公众投资者配售比例为21.44705968%。',
+};
+
+void test('嘉泽结果公告的三类配售比例完整识别，发售公告内容不影响结果', () => {
+  const facts = subscriptionResultFacts([jiazeResult, { ...record.files[2], content: '[第1页] 认购价格为9.99元/份，发售份额总额为99亿份。' }]);
+  const text = facts.map(fact => fact.claim).join('。');
+  assert.match(text, /3亿份.*1\.9458亿份.*0\.75亿份.*0\.3042亿份/);
+  assert.match(text, /战略投资者配售比例为100%/);
+  assert.match(text, /6\.66亿份.*11\.26126126%/);
+  assert.match(text, /1\.419亿份.*21\.44705968%.*4\.66倍/);
+  assert.doesNotMatch(text, /认购价格|募集规模/);
+  assertSourceEvidence({ brief: text, evidence: facts.flatMap(fact => fact.evidence) }, { ...record, files: [jiazeResult] });
+});
+
+void test('结果公告内部份额矛盾仍拒绝发布，不因排除发售公告放宽核验', () => {
+  assert.throws(() => subscriptionResultFacts([{ ...jiazeResult, content: jiazeResult.content.replace('30,000万份', '40,000万份') }]), /conflicting_subscription_terms/);
 });
 
 // Public PDF excerpts: result 508081_20261015_2T29, prospectus 508081_20260930_XEM5.
@@ -94,7 +120,7 @@ void test('长城华能真实公告措辞的战略份额和实际确认比例均
   assert.match(text, /10亿份.*战略配售初始份额为7亿份.*2\.1亿份.*0\.9亿份/);
   assert.match(text, /112\.05亿份.*1\.87416499%/);
   assert.match(text, /78\.019亿份.*1\.153872%.*86\.69倍/);
-  assert.match(text, /预计募集规模为31\.98亿元/);
+  assert.doesNotMatch(text, /认购价格|募集规模/);
   assertSourceEvidence({ brief: text, evidence: facts.flatMap(fact => fact.evidence) });
 });
 
@@ -141,7 +167,9 @@ void test('同页重复摘录不重复累计容量，同一建设内容中的不
 });
 
 void test('旧版认购完整稿在本次规则升级后也会重新生成', () => {
-  assert.equal(needsBriefRegeneration({ ...record, brief: `${canonicalBriefOpening(record)}。本次发售基金份额总额为5亿份。`, briefRulesVersion: '2026-10-14-subscription-v1' }, record), true);
+  for (const version of ['2026-10-14-subscription-v1', '2026-10-16-subscription-v2']) {
+    assert.equal(needsBriefRegeneration({ ...record, brief: `${canonicalBriefOpening(record)}。本次发售基金份额总额为5亿份。`, briefRulesVersion: version }, record), true);
+  }
 });
 
 void test('认购完整性校验拒绝遗漏或篡改已从概况表提取的容量及其原页证据', () => {
@@ -157,11 +185,15 @@ void test('在无用户凭据的隔离进程内，模型服务失败或返回无
     import { generateDeepSeekBrief } from ${JSON.stringify(new URL('../lib/deepseek.ts', import.meta.url).href)};
     let calls = 0;
     for (const response of [() => new Response(null, { status: 503 }), () => Response.json({ output_text: 'invalid JSON' })]) {
-      globalThis.fetch = async () => { calls++; return response(); };
+      globalThis.fetch = async (_url, init) => {
+        calls++;
+        assert.doesNotMatch(init.body, /类型：发售|认购价格为3.198/);
+        return response();
+      };
       const result = await generateDeepSeekBrief(${JSON.stringify(huaneng)});
       assert.match(result.brief, /战略配售初始份额为7亿份/);
       assert.match(result.brief, /1\\.153872%.*86\\.69倍/);
-      assert.match(result.brief, /31\\.98亿元/);
+      assert.doesNotMatch(result.brief, /认购价格|募集规模/);
       assert.match(result.brief, /装机容量.*70万千瓦/);
       assert.ok(result.evidence.length > 10);
     }

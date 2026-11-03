@@ -23,7 +23,6 @@ function format(value: number, digits = 3) {
 
 export function subscriptionResultFacts(files: SourceFile[]): SubscriptionFact[] {
   const results = files.filter(file => file.kind === '认购结果');
-  const offerings = files.filter(file => file.kind === '发售');
   const total = find(results, '(?:募集基金份额总额|基金份额总额|发售份额总额)(?:为|:|：)?', true);
   const strategic = find(results, '(?:初始战略配售(?:发售)?(?:基金)?份额(?:数量)?|战略配售初始(?:发售)?(?:基金)?份额(?:数量)?)(?:为|:|：)?', true);
   const offline = find(results, '(?:网下发售的初始基金份额数量|网下(?:发售)?初始(?:发售)?(?:基金)?份额)(?:为|:|：)?', true);
@@ -31,16 +30,15 @@ export function subscriptionResultFacts(files: SourceFile[]): SubscriptionFact[]
   const offlineEffective = find(results, '网下投资者[^。]{0,200}?有效认购(?:基金)?份额(?:总数|数量|总额)?(?:为|:|：)?', true);
   const publicEffective = find(results, '公众投资者的?有效认购(?:基金)?份额(?:总数|数量|总额)?(?:为|:|：)?', true);
   const offlineRatio = find(results, '网下投资者有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%') ||
+    find(results, '网下投资者配售比例(?:为|:|：)?', false, '%') ||
     find(results, '网下投资者[^。]{0,120}?对应配售比例(?:为|:|：)?', false, '%');
   const publicRatio = find(results, '公众投资者有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%') ||
+    find(results, '公众投资者配售比例(?:为|:|：)?', false, '%') ||
     find(results, '公众投资者[^。]{0,120}?有效认购申请(?:实际|最终)?确认比例(?:[（(]即配售比例[）)])?(?:为|:|：)?', false, '%');
-  const strategicRatio = find(results, '战略投资者有效认购申请(?:实际|最终)?确认比例(?:为|:|：)?', false, '%');
+  const strategicRatio = find(results, '战略投资者有效认购申请(?:实际|最终)?确认比例(?:为|:|：)?', false, '%') ||
+    find(results, '战略投资者配售比例(?:为|:|：)?', false, '%');
   const multiple = find(results, '公众投资者[^。]{0,160}?认购倍数(?:达到|约为|为|约)?', false, '倍');
-  const resultPrice = find(results, '(?:基金份额)?认购价格(?:为|:|：)?', false, '元/份');
-  const offeringPrice = find(offerings, '(?:基金份额)?认购价格(?:为|:|：)?', false, '元/份');
-  if (resultPrice && offeringPrice && Math.abs(resultPrice.value - offeringPrice.value) > 1e-8)
-    throw new Error('conflicting_subscription_terms');
-  const price = resultPrice || offeringPrice;
+  const price = find(results, '(?:基金份额)?认购价格(?:为|:|：)?', false, '元/份');
   if (total && strategic && offline && publicOffer && Math.abs(strategic.value + offline.value + publicOffer.value - total.value) > 1)
     throw new Error('conflicting_subscription_terms');
   if (multiple && publicEffective && publicOffer) {
@@ -60,14 +58,14 @@ export function subscriptionResultFacts(files: SourceFile[]): SubscriptionFact[]
     publicOffer && `公众发售初始份额为${shares(publicOffer)}`,
   ].filter(Boolean).join('，');
   if (structure) add(structure, [total, strategic, offline, publicOffer]);
-  if (strategicRatio) add(`战略投资者有效认购申请确认比例为${strategicRatio.value}%`, [strategicRatio]);
+  if (strategicRatio) add(`战略投资者${strategicRatio.quote.includes('有效认购申请') ? '有效认购申请确认比例' : '配售比例'}为${strategicRatio.value}%`, [strategicRatio]);
   if (offlineEffective || offlineRatio) add([
     offlineEffective && `网下投资者有效认购份额总数约${shares(offlineEffective, 3)}`,
     offlineRatio && `对应配售比例为${offlineRatio.value}%`,
   ].filter(Boolean).join('，'), [offlineEffective, offlineRatio]);
   if (publicEffective || publicRatio || multiple) add([
     publicEffective && `公众投资者有效认购份额约${shares(publicEffective, 3)}`,
-    publicRatio && `有效认购申请确认比例为${publicRatio.value}%`,
+    publicRatio && `${publicRatio.quote.includes('有效认购申请') ? '有效认购申请确认比例' : '配售比例'}为${publicRatio.value}%`,
     multiple ? `认购倍数约${multiple.value}倍` : publicEffective && publicOffer && `按有效认购份额与公众初始发售份额计算，认购倍数约${format(publicEffective.value / publicOffer.value, 2)}倍`,
   ].filter(Boolean).join('，'), [publicEffective, publicRatio, multiple || publicEffective && publicOffer]);
   if (price) add(`此前确定的基金份额认购价格为${price.value}元/份`, [price]);
