@@ -10,6 +10,15 @@ import {
   type ReitsSourceFile,
 } from '../lib/reits-rules.ts';
 
+void test('同一事项按官方披露时间选文，同日只有日期时采用明确的更正文件', () => {
+  const earlier = file('认购申请确认比例结果的公告', '信息披露', '2026-11-11');
+  const correction = { ...earlier, originalTitle: '认购申请确认比例结果的更正公告', url: 'https://example.com/correction.pdf' };
+  assert.deepEqual(selectStageFiles('认购结果', [earlier, correction]), [correction]);
+  const morning = { ...correction, publishedAt: '2026-11-11 09:00:00' };
+  const afternoon = { ...earlier, publishedAt: '2026-11-11T14:00:00' };
+  assert.deepEqual(selectStageFiles('认购结果', [morning, afternoon]), [afternoon]);
+});
+
 function file(
   originalTitle: string,
   section = '项目材料',

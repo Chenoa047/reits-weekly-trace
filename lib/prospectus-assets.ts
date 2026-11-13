@@ -1,12 +1,13 @@
+import { latestDisclosureFile } from './reits-rules.ts';
+
 type SourceFile = { kind: string; url: string; content?: string; publishedAt?: string; originalTitle?: string };
 type Evidence = { fileUrl: string; page: number; quote: string; claim: string };
 
 // Only use explicitly labelled rows in a project overview table; do not infer a project from a fund name.
 export function prospectusAssetFacts(files: SourceFile[], offeringType?: string) {
-  const file = files.filter(file => file.kind === '招募说明书' && file.content)
-    .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))[0];
-  if (!file) return [];
-  const pages = (file.content || '').split(/(?=\[第\d+页\])/).map(part => ({
+  const file = latestDisclosureFile(files.filter(file => file.kind === '招募说明书'));
+  if (!file?.content) return [];
+  const pages = file.content.split(/(?=\[第\d+页\])/).map(part => ({
     page: Number(part.match(/^\[第(\d+)页\]/)?.[1]), text: part.normalize('NFKC').replace(/\s/g, ''),
   })).filter(part => part.page);
   const expansion = offeringType === '扩募' || /扩募|新购入/.test(file.originalTitle || '');
@@ -27,7 +28,7 @@ export function prospectusAssetFacts(files: SourceFile[], offeringType?: string)
     if (expansion && (scope ? /[^、，,及和与]/.test(names.reduce((remaining, name) => remaining.replace(name, ''), scope)) : !/本次扩募|拟购入|新购入/.test(part.text.slice(0, name.index)))) continue;
     const commonLocation = location[2].slice(0, location[2].length / projects);
     const sharedLocation = commonLocation.repeat(projects) === location[2];
-    const place = sharedLocation ? commonLocation : location[2].replace(/(?<=[省市区县州])(?=[\u4e00-\u9fff]{2,3}省|(?:北京|天津|上海|重庆)市|(?:内蒙古|西藏)自治区|广西壮族自治区|宁夏回族自治区|新疆维吾尔自治区)/g, '、');
+    const place = sharedLocation ? commonLocation : location[2].replace(/(?<=[省市区县州号])(?=(?:中国)?(?:[\u4e00-\u9fff]{2,3}省|(?:北京|天津|上海|重庆)市|(?:内蒙古|西藏)自治区|广西壮族自治区|宁夏回族自治区|新疆维吾尔自治区))/g, '、');
     const claim = `招募说明书${file.originalTitle?.includes('草案') ? '草案' : ''}显示，${expansion ? '本次扩募拟购入的' : ''}底层资产为${names.join('、')}，${projects > 1 ? sharedLocation ? '均' : '分别' : ''}位于${place}`;
     const evidence = (quote: string, page = part.page, sentence = claim): Evidence => ({ fileUrl: file.url, page, quote, claim: sentence });
     const facts = [{ claim, evidence: [evidence(name[0].replace(/(?:大类资产类型|不动产项目业态)$/, '')), evidence(`${location[1]}${location[2]}`, located!.page)] }];

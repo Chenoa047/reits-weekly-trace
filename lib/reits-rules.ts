@@ -100,6 +100,18 @@ export function inferProjectStage(
   return status;
 }
 
+export function latestDisclosureFile<T extends { publishedAt?: string; originalTitle?: string }>(files: T[]) {
+  const isCorrection = (file: T) => /更正|修订|更新/.test(file.originalTitle || '');
+  return files.toSorted((left, right) => {
+    const a = (left.publishedAt || '').replace(' ', 'T');
+    const b = (right.publishedAt || '').replace(' ', 'T');
+    const byDate = b.slice(0, 10).localeCompare(a.slice(0, 10));
+    if (byDate) return byDate;
+    if (a.length > 10 && b.length > 10 && a !== b) return b.localeCompare(a);
+    return Number(isCorrection(right)) - Number(isCorrection(left));
+  })[0];
+}
+
 function latestReviewFiles(files: ReitsSourceFile[]) {
   const latestDate = files.map((file) => file.publishedAt?.slice(0, 10) || '').sort().at(-1);
   return latestDate ? files.filter((file) => file.publishedAt?.slice(0, 10) === latestDate) : files;
@@ -123,11 +135,7 @@ export function reviewRoundFor(
 
 export function selectStageFiles(stage: string, files: ReitsSourceFile[]) {
   const latest = (kind: ReitsDocumentKind) =>
-    files
-      .filter((file) => file.kind === kind)
-      .sort((a, b) =>
-        (b.publishedAt || '').localeCompare(a.publishedAt || ''),
-      )[0];
+    latestDisclosureFile(files.filter((file) => file.kind === kind));
   const present = (items: Array<ReitsSourceFile | undefined>) =>
     items.filter((file): file is ReitsSourceFile => Boolean(file));
 

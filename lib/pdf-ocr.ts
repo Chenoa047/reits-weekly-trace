@@ -10,6 +10,7 @@ const MAX_OCR_PAGES = 40;
 export async function extractPdfTextWithOcr(
   data: Uint8Array,
   totalPages: number,
+  profile: 'default' | 'grayscale' = 'default',
 ) {
   const pageLimit = Math.min(totalPages, MAX_OCR_PAGES);
   const workDir = await mkdtemp(join(tmpdir(), 'reits-pdf-ocr-'));
@@ -17,13 +18,12 @@ export async function extractPdfTextWithOcr(
   const imagePrefix = join(workDir, 'page');
   await writeFile(pdfPath, data);
 
+  const renderOptions = profile === 'grayscale' ? ['-gray', '-png', '-r', '240'] : ['-jpeg', '-r', '180'];
   try {
     await execFile(
       'pdftoppm',
       [
-        '-jpeg',
-        '-r',
-        '180',
+        ...renderOptions,
         '-f',
         '1',
         '-l',
@@ -38,14 +38,14 @@ export async function extractPdfTextWithOcr(
   }
 
   const images = (await readdir(workDir))
-    .filter((name) => /^page-\d+\.jpg$/i.test(name))
+    .filter((name) => /^page-\d+\.(?:jpg|png)$/i.test(name))
     .sort((left, right) => pageNumber(left) - pageNumber(right));
   const pages: string[] = [];
   for (const image of images) {
     try {
       const { stdout } = await execFile(
         'tesseract',
-        [join(workDir, image), 'stdout', '-l', 'chi_sim+eng', '--psm', '3'],
+        [join(workDir, image), 'stdout', '-l', 'chi_sim+eng', '--psm', profile === 'grayscale' ? '4' : '3'],
         {
           encoding: 'utf8',
           timeout: 90_000,
@@ -63,5 +63,5 @@ export async function extractPdfTextWithOcr(
 }
 
 function pageNumber(name: string) {
-  return Number(name.match(/-(\d+)\.jpg$/i)?.[1] || 0);
+  return Number(name.match(/-(\d+)\.(?:jpg|png)$/i)?.[1] || 0);
 }

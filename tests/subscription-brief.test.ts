@@ -95,6 +95,24 @@ void test('结果公告内部份额矛盾仍拒绝发布，不因排除发售公
   assert.throws(() => subscriptionResultFacts([{ ...jiazeResult, content: jiazeResult.content.replace('30,000万份', '40,000万份') }]), /conflicting_subscription_terms/);
 });
 
+void test('凯德扫描件以复核后的同页数字通过校验，保留三类确认比例', () => {
+  const latest = {
+    ...record.files[0],
+    publishedAt: '2026-11-11',
+    content: '[第1页] 基金份额总额为70,000万份。初始战略配售基金份额数量为43,540万份。网下发售的初始基金份额数量为18,522万份。公众投资者认购的初始基金份额数量为7,938万份。\n[第2页] 11家网下投资者管理的27个有效报价配售对象全额缴纳认购款，对应的有效认购基金份额数量为21,104万份。公众投资者的有效认购基金份额数量为8,083.765093万份。战略投资者有效认购申请确认比例为100%。网下投资者有效认购申请确认比例为87.76535254%。公众投资者有效认购申请实际确认比例为98.19681681%。',
+  };
+  const corrupted = { ...latest, content: latest.content.replace('18,522', '18.522') };
+  assert.throws(() => subscriptionResultFacts([corrupted]), /conflicting_subscription_terms/);
+
+  const older = { ...corrupted, publishedAt: '2026-11-10', url: 'https://example.com/old-result.pdf' };
+  const facts = subscriptionResultFacts([older, latest]);
+  const summary = facts.map(fact => fact.claim).join('。');
+  assert.match(summary, /7亿份.*4\.354亿份.*1\.8522亿份.*0\.7938亿份/);
+  assert.match(summary, /100%.*87\.76535254%.*98\.19681681%/);
+  assert.ok(facts.flatMap(fact => fact.evidence).every(item => item.fileUrl === latest.url));
+  assert.ok(facts[0].evidence.some(item => item.page === 1 && item.quote.includes('18,522万份')));
+});
+
 // Public PDF excerpts: result 508081_20261015_2T29, prospectus 508081_20260930_XEM5.
 const huaneng = {
   ...record, exchange: '上交所', shortName: '长城华能燃煤发电REIT', updateDate: '2026-10-15',

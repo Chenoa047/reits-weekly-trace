@@ -1,4 +1,6 @@
-type SourceFile = { kind: string; url: string; content?: string };
+import { latestDisclosureFile } from './reits-rules.ts';
+
+type SourceFile = { kind: string; url: string; content?: string; publishedAt?: string; originalTitle?: string };
 type Fact = { value: number; quote: string; page: number; fileUrl: string };
 export type SubscriptionFact = { claim: string; evidence: Array<Omit<Fact, 'value'> & { claim: string }> };
 
@@ -22,7 +24,9 @@ function format(value: number, digits = 3) {
 }
 
 export function subscriptionResultFacts(files: SourceFile[]): SubscriptionFact[] {
-  const results = files.filter(file => file.kind === '认购结果');
+  const latest = latestDisclosureFile(files.filter(file => file.kind === '认购结果'));
+  if (!latest) return [];
+  const results = [latest];
   const total = find(results, '(?:募集基金份额总额|基金份额总额|发售份额总额)(?:为|:|：)?', true);
   const strategic = find(results, '(?:初始战略配售(?:发售)?(?:基金)?份额(?:数量)?|战略配售初始(?:发售)?(?:基金)?份额(?:数量)?)(?:为|:|：)?', true);
   const offline = find(results, '(?:网下发售的初始基金份额数量|网下(?:发售)?初始(?:发售)?(?:基金)?份额)(?:为|:|：)?', true);

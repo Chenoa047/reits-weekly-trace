@@ -3,6 +3,7 @@ import { describeFetchError } from './fetch-error.ts';
 import { REPLY_OTHER_TOPICS } from './reply-topics.ts';
 import { replyAnswerText, replyValuationFacts } from './reply-facts.ts';
 import { prospectusAssetFacts } from './prospectus-assets.ts';
+import { subscriptionResultFacts } from './subscription-results.ts';
 
 const MAX_PAGES = 600;
 const MAX_TOTAL_EXCERPT_CHARS = 45_000;
@@ -15,7 +16,10 @@ export async function addDocumentExcerpts(
   const perFileLimit = Math.floor(MAX_TOTAL_EXCERPT_CHARS / Math.max(files.length, 1));
   const hydrated: ReitsSourceFile[] = [];
   for (const file of files) {
-    hydrated.push({ ...file, content: await extractPdfText(file.url) });
+    hydrated.push({
+      ...file,
+      content: await extractPdfText(file, stage === '认购结果' && file.kind === '认购结果'),
+    });
   }
   return hydrated.map((file) => ({
     ...file,
@@ -33,7 +37,8 @@ export async function addDocumentExcerpts(
   }));
 }
 
-async function extractPdfText(url: string) {
+async function extractPdfText(file: ReitsSourceFile, verifySubscriptionNumbers: boolean) {
+  const { url } = file;
   const response = await downloadPdf(url);
   const contentType = response.headers.get('content-type') || '';
   if (
@@ -65,7 +70,18 @@ async function extractPdfText(url: string) {
   const result = pages.join('\n');
   if (isPdfTextTooSparse(result, pageCount)) {
     const { extractPdfTextWithOcr } = await import('./pdf-ocr.ts');
-    return extractPdfTextWithOcr(data, pageCount);
+    const content = await extractPdfTextWithOcr(data, pageCount);
+    if (!verifySubscriptionNumbers) return content;
+    try {
+      subscriptionResultFacts([{ ...file, content }]);
+      return content;
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'conflicting_subscription_terms') throw error;
+      // Verify suspected OCR punctuation errors against a second rendering of the same PDF.
+      const verifiedContent = await extractPdfTextWithOcr(data, pageCount, 'grayscale');
+      subscriptionResultFacts([{ ...file, content: verifiedContent }]);
+      return verifiedContent;
+    }
   }
   return result;
 }
